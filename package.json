@@ -1,0 +1,74 @@
+{
+  "name": "@npm-install-hanx/mint",
+  "version": "1.0.0",
+  "description": "Zero-dependency CLI that mints cryptographically secure random secrets, tokens, passwords and identifiers.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mint": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "node scripts/test.mjs",
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('dist-test',{recursive:true,force:true})\""
+  },
+  "keywords": [
+    "random",
+    "secrets",
+    "csprng",
+    "crypto",
+    "uuid",
+    "ulid",
+    "ksuid",
+    "nanoid",
+    "cuid",
+    "snowflake",
+    "typeid",
+    "objectid",
+    "password",
+    "passphrase",
+    "token",
+    "apikey",
+    "secret",
+    "generator",
+    "cli",
+    "entropy",
+    "secure-random",
+    "base58",
+    "base32"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/h4nxxlmao/mint.git"
+  },
+  "bugs": {
+    "url": "https://github.com/h4nxxlmao/mint/issues"
+  },
+  "homepage": "https://github.com/h4nxxlmao/mint#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.4"
+  }
+}
