@@ -155,7 +155,8 @@ $ mint uuid --entropy                 # value on stdout, "entropy: 122 bits" on 
 - **Verified by tests.** Every generator has format, length and charset tests, uniqueness across
   hundreds of runs, and uniformity checks (χ-style sigma bounds) over tens of thousands of draws
   for the sampling primitives — including the 58-symbol base58 path where modulo bias would
-  otherwise be visible.
+  otherwise be visible. `npm run verify` then drives every generator, flag and output mode through
+  the built CLI for another 1200+ end-to-end checks.
 
 **What mint does not do**
 
@@ -190,7 +191,9 @@ sampleChars(12, 'abc');                        // uniform characters, no modulo 
 randomIntBelow(6) + 1;                         // uniform 1-6
 ```
 
-The package is ESM-only (`"type": "module"`) and has no runtime dependencies.
+The package is ESM-only (`"type": "module"`) and has no runtime dependencies. Use `import` from
+Node 18+, or `require('@npm-install-hanx/mint')` on Node 22.12+ where `require(esm)` is supported
+(on Node 18/20 use `const { mint } = await import('@npm-install-hanx/mint')`).
 
 ## Contributing
 
@@ -200,8 +203,17 @@ cd mint
 npm install
 npm run build      # dist/
 npm test           # compiles the tests, then runs node:test
+npm run verify     # 1200+ end-to-end checks over the built CLI
 npm run typecheck
 node dist/cli.js --help
+```
+
+`npm run verify` drives the real command line: every generator, every flag it declares, every
+output mode, every help screen and the error paths (exit codes 0/1/2). Point it at an installed
+binary to check a release artifact instead of the build:
+
+```console
+node scripts/verify.mjs --bin mint
 ```
 
 Guidelines:
