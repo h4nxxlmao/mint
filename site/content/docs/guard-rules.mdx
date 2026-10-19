@@ -1,0 +1,99 @@
+`mint guard` ships 32 listed rules: 29 pattern rules and 3 environment checks. A Shannon-entropy detector runs on top of them.
+
+```bash
+mint guard rules
+mint guard rules --format json
+```
+
+## Pattern rules
+
+| Rule id | Severity | Detects | Replacement command |
+| --- | --- | --- | --- |
+| `private-key-block` | critical | PEM private key blocks | `mint passphrase --words 6` |
+| `aws-access-key-id` | high | AWS access key IDs | `mint base64url --length 40` |
+| `aws-secret-access-key` | critical | AWS secret keys next to their key name | `mint base64url --length 40` |
+| `gcp-service-account-json` | critical | Service account JSON with an embedded private key | `mint token --bytes 32` |
+| `google-api-key` | high | Google API keys | `mint token --bytes 32` |
+| `github-token` | critical | GitHub tokens, including fine-grained PATs | `mint token --bytes 32` |
+| `gitlab-token` | critical | GitLab personal access tokens | `mint token --bytes 32` |
+| `npm-token` | critical | npm tokens, including `.npmrc` auth tokens | `mint token --bytes 32` |
+| `pypi-token` | critical | PyPI upload tokens | `mint token --bytes 32` |
+| `huggingface-token` | high | Hugging Face tokens | `mint token --bytes 32` |
+| `anthropic-api-key` | critical | Anthropic API keys | `mint token --bytes 32` |
+| `openai-api-key` | critical | OpenAI API keys | `mint token --bytes 32` |
+| `mint-apikey` | critical | Keys generated with the `mint_` prefix | `mint apikey --prefix mint_ --checksum` |
+| `stripe-secret-key` | critical | Live Stripe secret and restricted keys | `mint apikey --prefix sk_live_ --length 32 --checksum` |
+| `slack-token` | high | Slack bot, user and app tokens | `mint token --bytes 32` |
+| `slack-webhook` | high | Slack incoming webhook URLs | `mint webhook-secret` |
+| `discord-bot-token` | high | Discord bot tokens | `mint token --bytes 32` |
+| `discord-webhook` | high | Discord webhook URLs | `mint webhook-secret` |
+| `twilio-auth-token` | critical | Twilio auth tokens | `mint token --bytes 24 --format hex` |
+| `twilio-account-sid` | medium | Twilio account SIDs | `mint token --bytes 24` |
+| `sendgrid-api-key` | high | SendGrid API keys | `mint token --bytes 32` |
+| `mailgun-api-key` | high | Mailgun API keys | `mint token --bytes 32` |
+| `telegram-bot-token` | high | Telegram bot tokens | `mint token --bytes 32` |
+| `supabase-service-role` | critical | JWT service role keys | `mint token --bytes 32` |
+| `supabase-token` | high | Supabase management tokens | `mint token --bytes 32` |
+| `firebase-server-key` | medium | Legacy Firebase server keys | `mint token --bytes 32` |
+| `jwt` | medium | Compact JSON Web Tokens | `mint jwt-secret --algo hs512` |
+| `database-url-password` | critical | Database URLs with an inline password | `mint password --length 32 --no-ambiguous` |
+| `generic-assignment` | medium | `password`, `secret`, `token`, `api_key` and similar assignments with a real-looking value | `mint password --length 32 --no-ambiguous` |
+
+Some rules only fire when a marker is present:
+
+- `gcp-service-account-json` requires `private_key` and `service_account`.
+- `supabase-service-role` requires `service_role`.
+
+The replacement command is a starting point, not the rotation itself. Rotate at the provider first.
+
+## Environment rules
+
+These are used by `mint guard env` and are included in `mint guard rules`.
+
+| Rule id | Severity | Detects | Replacement command |
+| --- | --- | --- | --- |
+| `env-file-tracked` | critical | `.env` file tracked by git | `mint token --bytes 32` |
+| `env-file-not-ignored` | high | `.env` file not ignored | `mint token --bytes 32` |
+| `env-no-example` | low | No `.env.example` while env files exist | `mint password --length 32 --no-ambiguous` |
+
+## Entropy detection
+
+The entropy detector catches secrets with no known format. It looks at quoted strings and assignment values, then applies these rules:
+
+- Length from 20 to 200 characters.
+- Shannon entropy of at least 4.5 bits per character by default.
+- Reject UUIDs, known digests, git hashes, URLs, file paths, source snippets, images, alphabets, prose and placeholders.
+- Reject values already matched by a pattern rule on the same span.
+
+```bash
+mint guard scan --entropy-threshold 5
+mint guard scan --entropy-threshold 4
+```
+
+Higher is stricter. Tune it only after looking at the findings. The synthetic rule id is `entropy-string`; it can be disabled in config:
+
+```json
+{
+  "disabledRules": ["entropy-string"],
+  "entropySeverity": "high",
+  "entropyThreshold": 4.5
+}
+```
+
+It can also be selected with `--rules entropy-string`, even though it is not printed as a row in the 32-rule list.
+
+## Filtering
+
+```bash
+mint guard scan --rules github-token,entropy-string
+```
+
+`--rules` accepts a comma-separated list. Unknown ids are an error. `--fail-on` controls the gate, not which rules run.
+
+## Reading the JSON rule list
+
+```bash
+mint guard rules --format json
+```
+
+Each entry contains the id, name, severity, keywords, why text, replacement command, rotation key and a `builtIn` flag. Custom rules from `.mintguard.json` appear here too.

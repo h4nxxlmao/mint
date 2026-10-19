@@ -1,0 +1,139 @@
+`mint guard` works without configuration. These files let a team agree on severity, exclusions and known accepted findings.
+
+## `.mintguard.json`
+
+`mint guard` looks for `.mintguard.json` in the scan root. Use `--config <path>` to point somewhere else. The path is resolved relative to the scan root unless it is absolute.
+
+Create a starter file and an ignore file with:
+
+```bash
+mint guard init
+mint guard init --force
+```
+
+`init` never overwrites an existing file without `--force`.
+
+### Keys and defaults
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `version` | `1` | Config format version |
+| `failOn` | `"medium"` | Severity that makes a scan exit 1 |
+| `entropyThreshold` | `4.5` | Shannon entropy threshold in bits per character |
+| `entropyMinLength` | `20` | Minimum candidate length |
+| `entropyMaxLength` | `200` | Maximum candidate length |
+| `entropySeverity` | `"high"` | Severity assigned to entropy findings |
+| `maxFileSize` | `1048576` | Skip files larger than this many bytes |
+| `includeLockfiles` | `false` | Scan lockfiles |
+| `disabledRules` | `[]` | Rule ids to skip |
+| `rules` | `{}` | Per-rule overrides: severity and disabled |
+| `customRules` | `[]` | Additional detection rules |
+| `exclude` | `[]` | Extra gitignore-style excludes |
+| `baselineFile` | `".mintguard-baseline.json"` | Baseline file path |
+| `ignoreFiles` | `[".mintguardignore"]` | Ignore files to read at the root |
+| `inlineComments` | `true` | Honor `mintguard:ignore` comments |
+
+A rule override:
+
+```json
+{
+  "rules": {
+    "generic-assignment": { "severity": "low" },
+    "entropy-string": { "disabled": true }
+  }
+}
+```
+
+A custom rule:
+
+```json
+{
+  "customRules": [
+    {
+      "id": "internal-service-key",
+      "name": "Internal service key",
+      "regex": "INTERNAL_[A-Za-z0-9]{24}",
+      "severity": "critical",
+      "keywords": ["internal_"],
+      "why": "This pattern belongs to our internal service.",
+      "mintCommand": "mint token --bytes 32",
+      "rotation": "generic"
+    }
+  ]
+}
+```
+
+`id` and `regex` are required. The regular expression is compiled with the `u` flag and is executed with `g`. Keywords are a case-insensitive pre-filter: a line must contain at least one before the regex runs. Custom rules are included in `mint guard rules` output.
+
+## Ignore rules
+
+`mint guard scan` reads:
+
+- `.mintguardignore` at the root.
+- `.gitignore` at the root and nested `.gitignore` files.
+- `.git/info/exclude`.
+- `exclude` patterns from the config.
+
+Patterns use gitignore syntax, including negation. `--no-gitignore` turns off ignore-file reading for the scan.
+
+```gitignore
+# test fixtures that intentionally contain fake credentials
+test/fixtures/
+
+# generated docs
+docs/reference/generated/
+```
+
+Keep a test fixture out of the scan rather than weakening a rule for the entire repository.
+
+## Inline suppression
+
+```ts
+const token = 'fixture-value'; // mintguard:ignore
+// mintguard:ignore-next-line
+const other = 'fixture-value';
+const scoped = 'fixture-value'; // mintguard:ignore generic-assignment
+```
+
+- `mintguard:ignore` suppresses findings on that line.
+- `mintguard:ignore-next-line` suppresses the following line.
+- Add rule ids after the marker to scope the suppression.
+- Disable the behavior globally with `"inlineComments": false` or `--no-inline-comments`.
+
+## Baselines
+
+A baseline accepts today's findings so a scan can focus on new leaks.
+
+```bash
+mint guard baseline
+mint guard baseline --baseline-file .guard-baseline.json
+```
+
+The baseline file contains:
+
+- A random salt.
+- A creation timestamp.
+- One entry per finding with a salted SHA-256 hash, a digest-based finding id, rule id, file and severity.
+
+It does not contain secrets or previews. The baseline hash is SHA-256 over the salt, rule id, file path and secret, joined with NUL separators, so it cannot be matched against a table of known secrets without the salt. The shorter finding id uses its own digest and is not a reversible encoding of the value.
+
+Existing entries are kept when the baseline is refreshed. Re-run it after a reviewed, deliberate change. Later scans suppress matching findings and report how many were skipped.
+
+Flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--baseline-file <path>` | Use a different baseline file |
+| `--no-baseline` | Do not load or apply a baseline for this scan |
+
+A baseline is not a fix. It records acceptance. Rotate anything that was actually exposed.
+
+## Reviewed defaults
+
+The default threshold is `medium`. That means a generic assignment or a JWT can fail CI. If that is too noisy for a first rollout:
+
+```bash
+mint guard scan --fail-on high
+```
+
+Then lower it once the backlog is clean. Do not disable entire rule families just to make a build pass.

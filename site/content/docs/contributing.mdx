@@ -1,0 +1,74 @@
+The CLI is intentionally small and zero-dependency. Contributions should keep it that way.
+
+## Setup
+
+```bash
+git clone https://github.com/h4nxxlmao/mint
+cd mint
+npm install
+npm run build
+npm test
+npm run typecheck
+npm run verify
+node dist/cli.js --help
+```
+
+`npm test` compiles the tests and runs the Node test runner. `npm run verify` drives the built CLI through every generator, flag, output mode, help screen and error path.
+
+## Add a generator
+
+1. Add the implementation to the matching `src/generators/*.ts` module, or create a new module.
+2. Give it a one-line summary, a usage line, examples and the exact flags it accepts.
+3. Add it to a category in `src/registry.ts`.
+4. Build on the helpers in `src/random.ts`. Do not call randomness directly.
+5. Add tests for format, length, charset, uniqueness over many runs and, where relevant, uniformity.
+6. If the generator handles positional arguments or `--count` itself, set the matching capability on the generator object.
+7. Run `npm run verify`.
+
+The dispatcher rejects a flag that a generator does not declare. Do not declare flags the generator cannot support.
+
+## Add a guard rule
+
+1. Add `{ id, name, regex, severity, keywords, why, mintCommand, rotation }` to `RULES` in `src/guard/rules.ts`.
+2. Add a sample to `test/guard-fixtures.ts`.
+3. Make sure the replacement command is a valid mint invocation.
+4. Add or reuse a rotation playbook when the provider has specific steps.
+5. Make sure the rule never prints the raw value. Reports use the finding preview.
+6. Run the guard tests and the redaction test.
+
+Rules are data-driven. A new pattern should not need a new scanner code path unless the rule genuinely needs whole-file context.
+
+## Keep it honest
+
+- Never use `Math.random()`.
+- Every generator needs tests.
+- Every flag listed in help must work.
+- Every report format must stay redacted.
+- Network access is not allowed in the CLI.
+- If behavior changes, update the README, CHANGELOG and the docs under `site/content/docs`.
+
+## The site
+
+The website is self-contained in `site/`:
+
+```bash
+cd site
+npm install
+npm run dev
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Docs are MDX files in `site/content/docs/`. Add the page to the registry in `site/lib/docs.ts` so the sidebar, previous and next links, and sitemap pick it up.
+
+The playground in `site/lib/playground.ts` is a Web Crypto port, not the CLI. Keep it in sync when a generator's shape or default changes.
+
+## Commits
+
+Use conventional commit prefixes such as `feat:`, `fix:`, `docs:` and `chore:`. Keep each commit focused. Do not commit generated build output, package tarballs or environment files.
+
+## License
+
+MIT. The bundled passphrase word list is the BIP-39 English list, redistributed under the MIT license. See the root `LICENSE` file for attribution.

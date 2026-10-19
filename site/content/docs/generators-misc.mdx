@@ -1,0 +1,197 @@
+These generators cover ranges, dice, coins, choices, colors and network-ish addresses. They use the same CSPRNG and rejection sampling as everything else.
+
+## int
+
+A random integer in an inclusive range, or an integer of a requested bit width.
+
+```bash
+mint int [--min 0] [--max 4294967295]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--min <n>` | Inclusive minimum, default 0 |
+| `--max <n>` | Inclusive maximum, default 4294967295 |
+| `-b, --bytes <n>` | Draw an integer up to n times 8 bits wide |
+| `--bits <n>` | Draw an integer up to this many bits wide |
+
+`--bytes` and `--bits` cannot be combined with `--min` or `--max`.
+
+```console
+$ mint int --min 1 --max 100
+10
+
+$ mint int --min -50 --max 50
+-17
+
+$ mint int --bits 128
+```
+
+## dice
+
+Dice notation with an optional modifier. Every die is drawn independently with rejection sampling.
+
+```bash
+mint dice [2d6] [--count 1]
+```
+
+Supported notation: `d20`, `2d6`, `4d6+2`, `3d8-1`. A bare `mint dice` rolls `1d6`.
+
+```console
+$ mint dice 4d6+2
+16
+
+$ mint dice d20 --count 5
+```
+
+The `--count` flag repeats the whole roll, one total per line.
+
+## coin
+
+A coin flip.
+
+```bash
+mint coin [--count 1]
+```
+
+```console
+$ mint coin
+tails
+
+$ mint coin --count 5
+```
+
+## pick
+
+Pick one or more items from the arguments.
+
+```bash
+mint pick <item...> [--count 1] [--unique]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--count <n>` | Number of picks |
+| `--unique` | Pick distinct items. Requires at least as many items as picks |
+
+`pick` handles `--count` itself and prints one item per line.
+
+```console
+$ mint pick red green blue
+green
+
+$ mint pick a b c d --count 2 --unique
+```
+
+## shuffle
+
+Shuffle the arguments into a random order.
+
+```bash
+mint shuffle <item...> [--count 1]
+```
+
+Each `--count` iteration performs another Fisher-Yates shuffle.
+
+```console
+$ mint shuffle a b c d
+c
+d
+b
+a
+```
+
+## color
+
+A random color.
+
+```bash
+mint color [--format hex|rgb|hsl]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--format <hex\|rgb\|hsl>` | Output format, default `hex` |
+
+```console
+$ mint color
+#deef1c
+
+$ mint color --format hsl
+hsl(213, 64%, 41%)
+```
+
+## mac
+
+A random locally-administered, unicast MAC address. The first byte is adjusted so the address is not a globally assigned hardware address.
+
+```bash
+mint mac [--separator :] [--upper]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--separator <str>` | Separator, default `:` |
+| `--upper` | Uppercase output |
+| `--lower` | Lowercase output |
+
+```console
+$ mint mac
+92:54:82:2c:49:3a
+```
+
+## ipv4
+
+A random IPv4 address.
+
+```bash
+mint ipv4 [--public]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--public` | Reject loopback, private, link-local, CGNAT, multicast and reserved ranges |
+
+```console
+$ mint ipv4 --public
+91.0.245.107
+```
+
+## ipv6
+
+A random IPv6 address.
+
+```bash
+mint ipv6 [--compressed] [--upper]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--compressed` | Use RFC 5952 `::` compression |
+| `--upper` | Uppercase output |
+| `--lower` | Lowercase output |
+
+```console
+$ mint ipv6 --compressed
+9c92:8fd:c1d4:892f:377b:c203:828f:a97e
+```
+
+## port
+
+A random TCP or UDP port number.
+
+```bash
+mint port [--min 1] [--max 65535]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--min <n>` | Inclusive minimum, default 1 |
+| `--max <n>` | Inclusive maximum, default 65535 |
+
+```console
+$ mint port
+8098
+
+$ mint port --min 8000 --max 8999
+```

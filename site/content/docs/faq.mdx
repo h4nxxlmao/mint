@@ -1,0 +1,107 @@
+## Does mint use Math.random?
+
+No. The only entropy source is `node:crypto` through `crypto.randomBytes`. Every character, integer and shuffle is built on rejection sampling, so mapping randomness onto a shorter alphabet does not introduce modulo bias.
+
+## Are the values reproducible?
+
+No. There is no seed, no seed file and no way to replay a value. If you need reproducibility for tests, keep fixtures instead of asking the CSPRNG to repeat itself.
+
+## What is the difference between bytes, bits and length?
+
+`--bytes` and `--bits` describe entropy. `--length` describes output characters.
+
+```bash
+mint hex --bytes 32    # 32 bytes of entropy, 64 hex characters
+mint hex --bits 256    # the same entropy, in bits
+mint hex --length 64   # 64 uniformly sampled hex characters
+```
+
+Do not combine them. See [Global flags](/docs/global-flags).
+
+## Why is a UUID v7 only 74 bits?
+
+The first 48 bits are a timestamp. A timestamp helps with sorting but is not secret, so it is not counted as security. A UUID v4 has 122 random bits. A ULID has 80 random bits. A TypeID inherits the UUIDv7 random portion.
+
+## Is base64 of 16 random bytes 128 bits of security?
+
+The entropy is 128 bits, because 16 bytes came from the CSPRNG. The text is longer than 16 characters, but the encoded length is not the security number. `--entropy` and `--json` report the random bits.
+
+## Can I use these values for encryption keys?
+
+You can generate symmetric keys where the algorithm expects raw bytes or a specific encoded length. `mint aes` produces AES key sizes and an optional IV. For asymmetric key pairs, use a tool designed for that purpose; mint does not create RSA or EC keys.
+
+## Is mint really offline?
+
+Yes. The package makes no network requests, has no telemetry and has no update check. `mint guard` uses embedded rules and rotation text, not a remote feed.
+
+## Does mint store generated values?
+
+No. It writes the value to stdout, or to the clipboard if `--copy` is used. There is no history file. Your shell, terminal scrollback, clipboard manager or process list may still record it.
+
+## Does mint guard print the full secret?
+
+No. Reports and baseline files only contain a redacted preview or a salted hash. The preview is the first four and last two characters; values under 12 characters are fully masked.
+
+## Can mint guard scan git history?
+
+Yes:
+
+```bash
+mint guard scan --history
+mint guard scan --history --since "2 weeks ago"
+mint guard scan --history --since HEAD~20
+```
+
+Every added line is scanned and the report includes the commit hash, author and date.
+
+## What does the pre-commit hook run?
+
+`mint guard scan --staged --fail-on <severity>`. The default severity is medium. The hook is installed as a marked block and never replaces an existing hook without `--force`.
+
+## What if mint is not installed when the hook runs?
+
+The hook warns and lets the commit through. This avoids blocking work by accident. Use CI as the hard gate.
+
+## How do I ignore a false positive?
+
+In order of preference:
+
+1. Use an inline `mintguard:ignore` comment for a one-line fixture.
+2. Add a path to `.mintguardignore`.
+3. Disable a specific rule in `.mintguard.json`.
+4. Record a reviewed baseline with `mint guard baseline`.
+
+Do not disable a rule just because it found a real value. Rotate the value.
+
+## I already pushed a secret. What now?
+
+Rotate it first. Assume the value was scraped. Removing the line from the working tree does not undo the exposure, and cleaning history does not revoke the credential.
+
+```bash
+mint guard rotate-help <rule-id-or-finding-id>
+mint guard scan --history
+```
+
+## Why are lockfiles skipped?
+
+Lockfiles are large, noisy and rarely the place a hand-written credential appears. Use `--include-lockfiles` when you want them scanned.
+
+## Why was a file skipped?
+
+The scan skips binary files, lockfiles, ignored paths, symlinks, files over `--max-file-size` and lines over 8 KB. Run without `--quiet` to see progress, or check the stats in JSON output.
+
+## Can the playground send my pasted text anywhere?
+
+No. The playground scanner and generators run in your browser with Web Crypto. There is no API route, no database and no upload. The page is static.
+
+## Does the playground match the CLI exactly?
+
+It implements a subset. The CLI has more generators, all 32 guard rules, history scanning, baselines and four report formats. Use the CLI for anything beyond a quick check.
+
+## Is there a Homebrew package?
+
+There is no separate Homebrew formula in this repository. Install the npm package or run it with npx.
+
+## What license is mint under?
+
+MIT. The bundled passphrase word list is the BIP-39 English list, redistributed under the MIT license. See the root `LICENSE` file.

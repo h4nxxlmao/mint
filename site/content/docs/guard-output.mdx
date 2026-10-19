@@ -1,0 +1,133 @@
+`mint guard` can write a human report, a machine report, a GitHub code-scanning SARIF file or a Markdown summary.
+
+## Choosing a format
+
+```bash
+mint guard scan --format text
+mint guard scan --format json
+mint guard scan --format sarif > mintguard.sarif
+mint guard scan --format markdown > mintguard.md
+```
+
+`scan` and `env` accept all four formats. `--json` is shorthand for `--format json`; `--format md` and `--format plain` are accepted aliases. `mint guard rules` accepts `text` and `json`. `baseline`, `init`, `install-hook` and `uninstall-hook` print human text.
+
+Every format is redacted. None of them contains a full secret.
+
+## text
+
+The default. Findings are grouped by severity, then sorted by file, line and rule. A finding includes the rule id, rule name, location, redacted preview, why it matters, replacement command and id.
+
+`--fix` adds the provider rotation plan to text output. It never edits a file.
+
+## json
+
+The report shape:
+
+```json
+{
+  "tool": "mint guard",
+  "version": "1.1.0",
+  "mode": "worktree",
+  "root": "/path/to/repo",
+  "failOn": "medium",
+  "summary": {
+    "critical": 1,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "total": 2,
+    "baselined": 0,
+    "truncated": false
+  },
+  "stats": {
+    "filesScanned": 184,
+    "filesSkipped": 22,
+    "bytesScanned": 3412300,
+    "binaries": 4,
+    "oversized": 0,
+    "longLinesSkipped": 0,
+    "durationMs": 210,
+    "summaryLine": "184 files scanned · 3.3 MB · 0.21s"
+  },
+  "notes": [],
+  "findings": [
+    {
+      "id": "github-token-8c1f9a2e",
+      "hash": "1a2b3c4d5e6f7a8b",
+      "rule": "github-token",
+      "ruleName": "GitHub token",
+      "severity": "critical",
+      "file": "src/config.ts",
+      "line": 14,
+      "preview": "ghp_...9f",
+      "why": "A GitHub token can read or push code...",
+      "mintCommand": "mint token --bytes 32",
+      "rotation": "github",
+      "source": "worktree"
+    }
+  ]
+}
+```
+
+History findings add a `commit` object with `hash`, `author` and `date`.
+
+Use this format when you need counts, locations or a redacted preview in another tool. Do not try to recover the value from it: the value is not there.
+
+## sarif
+
+SARIF 2.1.0 for GitHub code scanning and other SARIF consumers. Each detection rule becomes a reporting descriptor, and each finding becomes a result with a file location, severity level, partial fingerprint and help text.
+
+```bash
+mint guard scan --fail-on high --format sarif > mintguard.sarif
+```
+
+```yaml
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: mintguard.sarif
+```
+
+The job needs `security-events: write` permission. Findings are uploaded with redacted previews only.
+
+## markdown
+
+A table plus next steps, ready for a pull request comment or a CI job summary.
+
+```bash
+mint guard scan --format markdown >> "$GITHUB_STEP_SUMMARY"
+```
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | No findings at or above `--fail-on` |
+| 1 | At least one finding at or above `--fail-on` |
+| 2 | Usage error, missing config, git failure, unreadable input or another runtime error |
+
+The default `--fail-on` is `medium`. For a clean repository:
+
+```bash
+mint guard scan --fail-on high
+echo $?
+```
+
+Findings below the threshold are still printed, but do not change the exit code. This is intentional: a first rollout can report low and medium findings without blocking every commit.
+
+## Limits
+
+- At most 5,000 findings are collected per scan. The report sets `truncated` when the limit is reached.
+- Lines over 8 KB are skipped.
+- Files over `--max-file-size` are skipped.
+- Binary files are skipped.
+- Lockfiles are skipped unless `--include-lockfiles` is passed.
+
+## The guarantee
+
+The terminal report, JSON, SARIF, Markdown and baseline only ever receive:
+
+- A redacted preview, or `***` for values shorter than 12 characters.
+- A salted hash.
+
+The raw value stays inside the scanner.

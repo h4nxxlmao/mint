@@ -1,0 +1,83 @@
+`mint` is a zero-dependency command-line tool for generating cryptographically secure values: raw bytes, passwords, passphrases, tokens, keys, UUIDs, sortable IDs and a handful of useful miscellany. It also ships `mint guard`, an offline scanner for leaked secrets.
+
+Every value comes from `node:crypto`. There is no `Math.random()` in the source, no network access, no telemetry and no config file required.
+
+## Install it
+
+```bash
+npm install -g @xnah/mint
+```
+
+The package installs a binary called `mint`. You can also run it without installing:
+
+```bash
+npx @xnah/mint uuid
+```
+
+Requires Node.js 18 or newer. See [Installation](/docs/installation) for pnpm, bun, source installs and programmatic use.
+
+## First commands
+
+```console
+$ mint uuid
+33c6e3de-6cb2-4075-b21c-1547149ccbde
+
+$ mint password --length 24
++@<,+YXIt-;u,hL,8{%]pQ3#
+
+$ mint passphrase --words 4
+shield-pave-carpet-program
+
+$ mint 32
+3d9aa94476b28bc36822a7a3efa6a73e14672366423e38836d55769d9f4cb5da
+```
+
+`mint <n>` is shorthand for `mint bytes --bytes <n>`. Use `mint uuid --v7` for a sortable UUID, `mint nanoid --size 12` for a compact ID and `mint apikey --prefix sk_live_ --checksum` for a key with a typo-catching suffix.
+
+## Protect what you generate
+
+`mint guard` scans a working tree, the git index or git history for credentials:
+
+```console
+$ mint guard scan
+mint guard · worktree scan
+
+! 2 findings (1 critical, 1 high)
+  96 files scanned · 1.2 MB · 0.34s
+
+CRITICAL private-key-block       config/server.pem
+         Private key
+         preview: ----...EY
+         why: A private key in the tree lets anyone impersonate the service...
+         fix: mint passphrase --words 6
+
+HIGH     github-token            .env.local:4
+         GitHub token
+         preview: ghp_...9f
+         why: A GitHub token can read or push code...
+         fix: mint token --bytes 32
+```
+
+The preview is always redacted. The full value never appears in the terminal report, JSON, SARIF, Markdown or baseline file.
+
+## The three sizes
+
+Generators that accept a size use one of three mutually exclusive flags:
+
+```console
+$ mint hex --bytes 32    # 32 random bytes, encoded as 64 hex characters
+$ mint hex --bits 256    # the same amount of randomness, in bits
+$ mint hex --length 64   # exactly 64 characters, sampled uniformly
+```
+
+`--bytes` and `--bits` describe entropy. `--length` describes output characters. Do not combine them.
+
+## Where to go next
+
+- [Quick examples](/docs/quick-examples) for copy-and-paste invocations.
+- [Generator reference](/docs/generators-bytes) for one page per family, with flags.
+- [Global flags](/docs/global-flags) for `--json`, `--env`, `--copy` and friends.
+- [mint guard](/docs/guard-scan) for scanning, baselines and CI.
+- [Security model](/docs/security-model) for exactly what the guarantees mean.
+
+> Deleted a leak from a file? That does not undo the exposure. Rotate the credential first, then replace it.

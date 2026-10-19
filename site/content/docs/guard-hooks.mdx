@@ -1,0 +1,87 @@
+## Pre-commit hook
+
+```bash
+mint guard install-hook
+mint guard install-hook --fail-on high
+mint guard install-hook --force
+mint guard uninstall-hook
+```
+
+`install-hook` writes a marked block into the repository's `pre-commit` hook. The hook path is resolved with `git rev-parse --git-path hooks`, so worktrees and custom hook paths work.
+
+The block runs:
+
+```bash
+mint guard scan --staged --fail-on medium
+```
+
+`--fail-on` sets the severity used by that command.
+
+### Existing hooks
+
+- Without `--force`, an existing hook is never replaced. The command explains that the hook already exists.
+- With `--force`, the existing file is kept. The guard block is inserted after the shebang so an existing `exit 0` cannot skip it, and the previous hook continues to run.
+- Re-running `install-hook` updates the guard block in place.
+- `uninstall-hook` removes only the marked block. If the hook becomes empty, it is deleted; otherwise the rest is preserved.
+
+### If mint is not installed
+
+The hook checks for `mint` on `PATH` and then for `./node_modules/.bin/mint`. If neither is available, it prints a warning and lets the commit through. Tooling should not block work by accident.
+
+This also means the hook is a convenience, not a hard security boundary. Keep a CI scan as the authoritative gate.
+
+## Rotation help
+
+```bash
+mint guard rotate-help <finding-id|rule-id>
+```
+
+Examples:
+
+```bash
+mint guard rotate-help github-token
+mint guard rotate-help github-token-8c1f9a2e
+mint guard rotate-help stripe-secret-key
+mint guard rotate-help aws-access-key-id
+```
+
+`rotate-help` prints:
+
+1. The provider and rule name.
+2. Why the finding matters.
+3. Provider-specific rotation steps.
+4. Documentation links when available.
+5. The exact `mint` command for the replacement.
+6. A short reminder to review provider logs and keep the new value out of the repository.
+
+It is offline. The steps are embedded in the package, not fetched at runtime.
+
+## Fix plans
+
+```bash
+mint guard scan --fix
+```
+
+`--fix` appends the rotation playbook for each distinct rule to the text report. It does not edit files, rewrite history, run git commands or rotate anything at the provider. Despite the flag name, it is read-only.
+
+## A safe sequence
+
+```bash
+# 1. Find the problem
+mint guard scan --fail-on high
+
+# 2. Rotate at the provider
+mint guard rotate-help github-token
+
+# 3. Generate the replacement
+mint token --bytes 32
+
+# 4. Move it into the secret manager or a gitignored .env
+# 5. Re-stage the fix
+mint guard scan --staged
+
+# 6. Optionally clean history after the old value is dead
+git filter-repo --path <file> --invert-paths
+```
+
+Deleting a line is not rotation. Treat any committed credential as compromised.

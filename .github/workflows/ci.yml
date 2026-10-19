@@ -3,7 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'site/**'
   pull_request:
+    paths-ignore:
+      - 'site/**'
   workflow_dispatch:
 
 jobs:

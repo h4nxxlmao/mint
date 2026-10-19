@@ -1,0 +1,110 @@
+## IDs
+
+```console
+$ mint uuid --v7
+01a15481-e41d-707a-8cac-7a82e7033404
+
+$ mint ulid --lower
+01m5a83sa8v2avwx3eryqp203z
+
+$ mint nanoid --size 12
+gkP2vci-kG7f
+
+$ mint typeid user
+user_06gn90fe35re7d4xhyhhqd9vzr
+```
+
+## Passwords and secrets
+
+```console
+$ mint password --length 24
++@<,+YXIt-;u,hL,8{%]pQ3#
+
+$ mint passphrase --words 4
+shield-pave-carpet-program
+
+$ mint jwt-secret --algo hs512
+dW3tvSGlMmeh_QbURurN7rqPTkSf3WKh_0BfKbWFUuGAB7SOQCdqA6drkbQOrXZMUYvyuYjA2rBVBx-TEayExQ
+
+$ mint apikey --prefix sk_live_ --length 24 --checksum
+sk_live_BAkCh...ACTE
+```
+
+The API key is shown redacted here. The real command prints the full value.
+
+## Stacks and repeats
+
+```console
+$ mint hex --bytes 4 --count 3
+9f4c1a2b
+44d3e8a0
+cc38e17d
+
+$ mint uuid --count 2 --json
+[
+  {
+    "generator": "uuid",
+    "value": "33c6e3de-6cb2-4075-b21c-1547149ccbde",
+    "entropyBits": 122,
+    "version": 4
+  },
+  {
+    "generator": "uuid",
+    "value": "8e17db14-8f3a-49fc-8ea7-6c6c4f10d3a8",
+    "entropyBits": 122,
+    "version": 4
+  }
+]
+```
+
+## Environment variables
+
+```console
+$ mint jwt-secret --algo hs512 --env JWT_SECRET
+JWT_SECRET=<redacted>
+
+$ mint token --bytes 32 --count 2 --env API_TOKEN
+API_TOKEN_1=<redacted>
+API_TOKEN_2=<redacted>
+```
+
+The `--env` name is separate from `--prefix` and `--suffix`.
+
+## Pipes and files
+
+```bash
+# Copy a token to the clipboard
+mint token --bytes 32 | pbcopy
+
+# Append a dotenv line
+mint hex --bytes 32 --env SESSION_SECRET >> .env.local
+
+# Feed a password manager
+mint password --length 32 --no-newline | pass insert -m service/token
+
+# Write a SARIF report for code scanning
+mint guard scan --format sarif > mintguard.sarif
+```
+
+## Entropy
+
+```console
+$ mint uuid --entropy
+33c6e3de-6cb2-4075-b21c-1547149ccbde
+entropy: 122 bits
+```
+
+`--entropy` writes to stderr, so the value on stdout stays clean for pipes.
+
+## Protect a repository
+
+```bash
+mint guard scan
+mint guard scan --staged
+mint guard scan --history --since "2 weeks ago"
+mint guard env
+mint guard install-hook --fail-on high
+mint guard rotate-help stripe-secret-key
+```
+
+Read [mint guard](/docs/guard-scan) for the full workflow.

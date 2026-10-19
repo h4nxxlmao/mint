@@ -1,0 +1,105 @@
+## Requirements
+
+- Node.js 18 or newer.
+- A POSIX-like shell for the pre-commit hook. On Windows, use Git Bash or WSL for `mint guard install-hook`.
+- `git` for `mint guard scan --staged`, `--history`, `env`, `install-hook` and `uninstall-hook`.
+
+`mint` is ESM-only and has no runtime dependencies.
+
+## Global install
+
+```bash
+npm install -g @xnah/mint
+```
+
+Then:
+
+```bash
+mint --version
+mint uuid
+```
+
+## Without installing
+
+```bash
+npx @xnah/mint uuid
+npx @xnah/mint guard scan
+```
+
+## Other package managers
+
+```bash
+pnpm add -g @xnah/mint
+bun add -g @xnah/mint
+```
+
+The binary name is always `mint`, regardless of the package manager.
+
+## From source
+
+```bash
+git clone https://github.com/h4nxxlmao/mint
+cd mint
+npm install
+npm run build
+node dist/cli.js --help
+```
+
+To use the built binary as `mint`, link it:
+
+```bash
+npm link
+mint uuid
+```
+
+## Package rename
+
+The package is published as `@xnah/mint`. The older name `@npm-install-hanx/mint` is deprecated and points at the same package. If you have the old name installed, replace it:
+
+```bash
+npm uninstall -g @npm-install-hanx/mint
+npm install -g @xnah/mint
+```
+
+## Programmatic use
+
+```js
+import { mint, mintValue, sampleChars, randomIntBelow } from '@xnah/mint';
+
+mint('uuid');
+// { value: '...', entropyBits: 122, fields: { version: 4 } }
+
+mintValue('hex', { bytes: 32 });
+// 64 lowercase hex characters
+
+mintValue('pick', {}, ['red', 'green']);
+// one of the two strings
+
+sampleChars(12, 'abc');
+// 12 characters, uniformly sampled
+
+randomIntBelow(6) + 1;
+// a uniform integer from 1 to 6
+```
+
+`require('@xnah/mint')` works on Node 22.12 and newer where `require(esm)` is supported. On Node 18 and 20, use `await import('@xnah/mint')`.
+
+## Clipboard helpers
+
+`--copy` shells out to a platform helper:
+
+- macOS: `pbcopy`
+- Windows: `clip`
+- Linux: `xclip`, `wl-copy` or `xsel`
+
+If none is available, mint prints a warning to stderr and still writes the value to stdout. It does not fail the command.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `mint: unknown command` | Run `mint --help`; the command may have a different name. |
+| `is not supported by "mint ..."` | Run `mint <command> --help` to see the flags that command accepts. |
+| Clipboard warning | Install a clipboard helper, or pipe stdout into your secret manager. |
+| Hook is skipped | The hook warns when `mint` is not on `PATH` and lets the commit through. Install mint or add `./node_modules/.bin` to `PATH`. |
+| Hook was not installed | An existing hook is never replaced without `--force`. |

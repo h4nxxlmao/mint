@@ -1,0 +1,118 @@
+Use the hook to catch a leak before it enters history. Use CI to catch anything that gets past the hook.
+
+## GitHub Actions with SARIF
+
+```yaml
+name: secret scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  mint-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Scan for leaked secrets
+        run: npx --yes @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: mintguard.sarif
+          category: mint-guard
+```
+
+The scan step returns 1 when a finding is at or above the threshold. The upload step still runs because of `if: always()`, so the findings appear in GitHub code scanning.
+
+## Pre-commit hook
+
+```bash
+mint guard install-hook --fail-on high
+mint guard uninstall-hook
+```
+
+The installed hook runs `mint guard scan --staged --fail-on high` against the index. If mint is not available, the hook warns and lets the commit through, so keep CI as the authoritative gate.
+
+An existing hook is preserved. With `--force`, the guard block is added after the shebang; without it, the command explains that a hook already exists.
+
+## Any CI system
+
+```bash
+npx --yes @xnah/mint guard scan --fail-on high
+```
+
+For SARIF:
+
+```bash
+npx --yes @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
+```
+
+For a Markdown job summary:
+
+```bash
+npx --yes @xnah/mint guard scan --format markdown >> "$CI_SUMMARY_FILE"
+```
+
+The scanner itself makes no network calls. `npx` needs network access only to fetch the package.
+
+## npm scripts
+
+```json
+{
+  "scripts": {
+    "secrets:scan": "mint guard scan --fail-on high",
+    "secrets:staged": "mint guard scan --staged --fail-on high",
+    "secrets:env": "mint guard env",
+    "secrets:baseline": "mint guard baseline"
+  }
+}
+```
+
+Then:
+
+```bash
+npm run secrets:scan
+npm run secrets:staged
+```
+
+## Baselines in a team
+
+If a repository already has reviewed findings, record a baseline:
+
+```bash
+mint guard baseline
+git add .mintguard-baseline.json .mintguard.json .mintguardignore
+git commit -m "chore: add mint guard baseline"
+```
+
+The baseline contains salted hashes, never secrets. Later scans fail only on new findings.
+
+Do not baseline a real credential instead of rotating it. The baseline is for accepted false positives or fixture data.
+
+## Suggested rollout
+
+1. Run `mint guard scan --fail-on high` locally and fix the critical findings.
+2. Add the GitHub Actions job with `--fail-on high`.
+3. Install the pre-commit hook.
+4. Move to `--fail-on medium` once the backlog is clear.
+5. Review `.mintguardignore` and disabled rules periodically. Every exclusion is a blind spot.
+
+## History
+
+A history scan can be slow on a large repository. Start with a date:
+
+```bash
+mint guard scan --history --since "30 days ago" --fail-on critical
+```
+
+History findings include the commit hash, author and date. The whole-file GCP service account rule is not applied in history mode because only added lines are available.

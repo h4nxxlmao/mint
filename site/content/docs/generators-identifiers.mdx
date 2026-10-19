@@ -1,0 +1,195 @@
+These generators produce identifiers. Sortable formats use a timestamp for ordering and a random portion for uniqueness.
+
+## uuid
+
+RFC 9562 UUIDs. Version 4 is the default. Version 7 is time-sortable. Version 1 uses a timestamp and a random node.
+
+```bash
+mint uuid [--v7 | --v1 | --nil] [--upper] [--no-dashes]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--v1` | UUID version 1 |
+| `--v4` | UUID version 4, the default |
+| `--v7` | UUID version 7 |
+| `--nil` | All-zero UUID, zero entropy |
+| `--no-dashes` | Remove the hyphens |
+| `--upper` | Uppercase output |
+| `--lower` | Lowercase output |
+
+Version 4 carries 122 random bits. Version 7 carries a 48-bit timestamp plus 74 random bits. Version 1 reports 61 bits.
+
+```console
+$ mint uuid
+33c6e3de-6cb2-4075-b21c-1547149ccbde
+
+$ mint uuid --v7
+01a15481-e41d-707a-8cac-7a82e7033404
+```
+
+## ulid
+
+A ULID is a 48-bit timestamp plus 80 random bits in Crockford base32. It is 26 characters and lexicographically sortable.
+
+```bash
+mint ulid [--lower]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--upper` | Uppercase output, the default |
+| `--lower` | Lowercase output |
+
+```console
+$ mint ulid
+01M5A83SA8V2AVWX3ERYQP203Z
+
+$ mint ulid --lower
+01m5a83sa8v2avwx3eryqp203z
+```
+
+## ksuid
+
+A KSUID is a 4-byte timestamp plus 16 random bytes, encoded as base62 by default.
+
+```bash
+mint ksuid [--format base62|hex]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--format <base62\|hex>` | Output encoding. Default `base62` |
+
+```console
+$ mint ksuid
+3KutDiHAePr0eHd58l7eRGX5Xz8
+
+$ mint ksuid --format hex
+```
+
+## nanoid
+
+A compact URL-safe identifier. The default is 21 characters from a 64-symbol alphabet.
+
+```bash
+mint nanoid [--size 21] [--alphabet <chars>]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--size <n>` | Output length, default 21 |
+| `--length <n>` | Alias for `--size` |
+| `--alphabet <chars>` | Custom alphabet |
+| `-b, --bytes <n>` | Request entropy |
+| `--bits <n>` | Request entropy in bits |
+| `--upper` | Uppercase output |
+| `--lower` | Lowercase output |
+
+```console
+$ mint nanoid --size 12
+gkP2vci-kG7f
+```
+
+## cuid
+
+A cuid2-style identifier: a truncated SHA-512 digest over a timestamp, a process counter, a random fingerprint and fresh random bits. The first character is always a letter.
+
+```bash
+mint cuid [--length 24]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-l, --length <n>` | Length from 2 to 64, default 24 |
+| `--size <n>` | Alias for `--length` |
+| `-b, --bytes <n>` | Request entropy |
+| `--bits <n>` | Request entropy in bits |
+
+```console
+$ mint cuid
+kp8qb9ezi7kgy3vh1rikwcwj
+```
+
+## uid
+
+A short URL-safe identifier. With `--sortable`, an 8-character base36 timestamp is prefixed.
+
+```bash
+mint uid [--length 16] [--sortable]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-l, --length <n>` | Total length, default 16; sortable IDs need at least 9 |
+| `--size <n>` | Alias for `--length` |
+| `--sortable` | Prefix a base36 timestamp |
+| `--alphabet <chars>` | Custom alphabet |
+| `-b, --bytes <n>` | Request entropy |
+| `--bits <n>` | Request entropy in bits |
+
+```console
+$ mint uid
+EAD7G27zu_vCzh70
+```
+
+## objectid
+
+A MongoDB-style 12-byte ObjectId: a 4-byte timestamp, 5 process bytes and a 3-byte counter. It prints as 24 hex characters.
+
+```bash
+mint objectid [--upper]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--upper` | Uppercase output |
+| `--lower` | Lowercase output |
+
+```console
+$ mint objectid
+6ad6255bf92a00a9f6d94591
+```
+
+The CLI reports 64 bits of entropy for an ObjectId because part of the value is a timestamp and a counter.
+
+## snowflake
+
+A Twitter-style 64-bit snowflake: timestamp, worker id and sequence.
+
+```bash
+mint snowflake [--worker 0-1023]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--worker <0-1023>` | Worker id. A random worker is used when omitted |
+
+```console
+$ mint snowflake
+1561743907776617365
+
+$ mint snowflake --worker 7
+```
+
+The reported entropy is 22 bits because only the worker and the process's random starting state are secret.
+
+## typeid
+
+A type prefix, an underscore and a UUIDv7 encoded in Crockford base32. The result is lowercase and sortable within the type.
+
+```bash
+mint typeid [<type>] [--type user]
+```
+
+| Argument / flag | Effect |
+| --- | --- |
+| positional `<type>` | Prefix, takes precedence |
+| `--type <name>` | Prefix, default `id` |
+
+The type must start with a lowercase letter and contain only lowercase letters and digits. Maximum length is 63.
+
+```console
+$ mint typeid user
+user_06gn90fe35re7d4xhyhhqd9vzr
+```

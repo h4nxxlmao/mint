@@ -1,0 +1,141 @@
+These generators draw random bytes and then encode them. `--bytes` and `--bits` ask for entropy; `--length` asks for exact output characters and samples the encoding alphabet directly.
+
+All eight commands share the same flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--hex` | Hex output |
+| `--base64` | Standard padded base64 |
+| `--base64url` | URL-safe base64, unpadded by default |
+| `--base32` | RFC 4648 base32 |
+| `--base58` | Bitcoin base58, no look-alikes |
+| `--crockford` | Crockford base32, excludes I, L, O and U |
+| `--binary` | A string of 0 and 1 |
+| `-l, --length <n>` | Exact output length in characters |
+| `--size <n>` | Alias for `--length` |
+| `-b, --bytes <n>` | Draw that many random bytes |
+| `--bits <n>` | Draw that many random bits |
+| `--upper` | Uppercase output where the alphabet allows it |
+| `--lower` | Lowercase output where the alphabet allows it |
+| `--no-padding` | Strip base32 padding. Crockford is unpadded by default |
+
+Choose at most one encoding flag. Do not combine `--length`, `--bytes` and `--bits`.
+
+## bytes
+
+The flexible raw generator. Hex is the default; an encoding flag switches it.
+
+```bash
+mint bytes [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint 16 --base64
+TcoXyFoyHhCLROSUHNYELA==
+
+$ mint bytes --bytes 8 --base58
+4qDXoaijori
+```
+
+`mint <n>` is shorthand for `mint bytes --bytes <n>`.
+
+## hex
+
+Lowercase hex, two characters per byte.
+
+```bash
+mint hex [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint hex --bytes 8
+b169e2ce7e556bb7
+
+$ mint hex --length 8 --upper
+6DF35407
+```
+
+## base64
+
+Standard base64 with padding. Use `--no-padding` to strip the trailing `=` characters.
+
+```bash
+mint base64 [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint base64 --bytes 12
+5vdPtzsBmVM7Ok0+
+```
+
+## base64url
+
+URL-safe base64: `-` and `_` instead of `+` and `/`.
+
+```bash
+mint base64url [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint base64url --length 16
+HrlKDfweiZTmutP7
+```
+
+## base32
+
+RFC 4648 base32 using `A-Z` and `2-7`.
+
+```bash
+mint base32 [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint base32 --bytes 8
+TEZYDBG6WWYE6===
+
+$ mint base32 --bytes 5 --no-padding
+ODEAEUFO
+```
+
+## base58
+
+Bitcoin base58. The alphabet removes `0`, `O`, `I` and `l`.
+
+```bash
+mint base58 [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint base58 --bytes 8
+ELXZBFmeg54
+```
+
+## crockford
+
+Crockford base32, which removes `I`, `L`, `O` and `U`. Output is unpadded unless padding is enabled.
+
+```bash
+mint crockford [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint crockford --bytes 8
+CE6B4NR0PTXSP
+```
+
+## binary
+
+One character per bit.
+
+```bash
+mint binary [--bytes <n> | --length <n> | --bits <n>]
+```
+
+```console
+$ mint binary --bits 16
+0101111001100110
+```
+
+## Entropy
+
+With `--bytes` and `--bits`, the entropy is the number of random bytes times eight. With `--length`, the entropy is the character count times log base two of the encoding alphabet size. `--length` does not truncate an encoded byte string, it samples characters from the alphabet.
