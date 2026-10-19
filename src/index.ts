@@ -16,6 +16,11 @@ export { VERSION, REPO_URL } from './version.js';
 export { GENERATORS, CATEGORIES, findGenerator } from './registry.js';
 export { MintError, UsageError, RuntimeError } from './errors.js';
 export { assertSupportedFlags, dispatch } from './dispatch.js';
+export { runGuard } from './guard/index.js';
+export { GUARD_COMMANDS } from './guard/index.js';
+export { RULES as GUARD_RULES, PROVIDERS as GUARD_ROTATION_PLAYBOOKS } from './guard/rules.js';
+export { previewSecret as redactPreview } from './guard/redact.js';
+export type { Finding as GuardFinding, GuardReport, Severity as GuardSeverity } from './guard/types.js';
 export {
   randomBytes,
   randomIntBelow,

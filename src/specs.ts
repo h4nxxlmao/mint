@@ -1,5 +1,6 @@
 import { UsageError } from './errors.js';
 import type { FlagSpec, Flags } from './flags.js';
+import { GUARD_FLAGS } from './guard/specs.js';
 
 const spec = (value: FlagSpec): FlagSpec => value;
 
@@ -121,7 +122,7 @@ export const EXTRA_FLAGS: readonly FlagSpec[] = [
   spec({ name: 'unique', type: 'boolean', description: 'Pick distinct items' }),
 ];
 
-export const ALL_FLAGS: readonly FlagSpec[] = [...GLOBAL_FLAGS, ...SIZE_FLAGS, ...EXTRA_FLAGS];
+export const ALL_FLAGS: readonly FlagSpec[] = [...GLOBAL_FLAGS, ...SIZE_FLAGS, ...EXTRA_FLAGS, ...GUARD_FLAGS];
 
 export const GLOBAL_FLAG_NAMES: readonly string[] = GLOBAL_FLAGS.map((item) => item.name);
 

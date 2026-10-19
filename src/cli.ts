@@ -3,12 +3,14 @@ import { buildAliasMap, parseArgs } from './args.js';
 import { paletteFor, type Palette } from './colors.js';
 import { dispatch } from './dispatch.js';
 import { MintError, UsageError } from './errors.js';
+import { runGuard, type GuardIo, type GuardResult } from './guard/index.js';
 import { renderCommandHelp, renderMainHelp } from './help.js';
 import { render } from './output.js';
 import { findGenerator, GENERATORS } from './registry.js';
 import { buildSpecMap } from './specs.js';
 import { parseSize, suggest } from './flags.js';
 import { VERSION } from './version.js';
+import type { Flags } from './flags.js';
 import type { Generator } from './types.js';
 
 const SPECS = buildSpecMap();
@@ -32,11 +34,62 @@ function fail(error: MintError, palette: Palette): number {
 }
 
 function unknownCommand(command: string): UsageError {
-  const guess = suggest(command, GENERATORS.map((generator) => generator.name));
+  const candidates = [...GENERATORS.map((generator) => generator.name), 'guard'];
+  const guess = suggest(command, candidates);
   return new UsageError(
     `unknown command "${command}"`,
     guess ? `did you mean "mint ${guess}"?` : 'run "mint --help" to list every generator',
   );
+}
+
+/** Guard subcommands use 2 for every failure (docs: 0 clean, 1 findings, 2 error). */
+function failGuard(error: MintError, palette: Palette): number {
+  write(process.stderr, `${palette.red('mint:')} ${error.message}\n`);
+  if (error.hint) write(process.stderr, `${palette.dim(`  ${error.hint}`)}\n`);
+  return 2;
+}
+
+/** Write a guard result; history scans resolve asynchronously. */
+function writeGuardResult(result: GuardResult | Promise<GuardResult>, stderrPalette: Palette): number {
+  if (result instanceof Promise) {
+    result
+      .then((value) => {
+        write(process.stdout, value.stdout);
+        write(process.stderr, value.stderr);
+        process.exitCode = value.code;
+      })
+      .catch((error: unknown) => {
+        if (error instanceof MintError) {
+          process.exitCode = failGuard(error, stderrPalette);
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        write(process.stderr, `${stderrPalette.red('mint:')} unexpected error: ${message}\n`);
+        process.exitCode = 2;
+      });
+    return 0;
+  }
+  write(process.stdout, result.stdout);
+  write(process.stderr, result.stderr);
+  return result.code;
+}
+
+function guardIo(flags: Flags, stdoutPalette: Palette, stderrPalette: Palette): GuardIo {
+  return {
+    cwd: process.cwd(),
+    palette: stdoutPalette,
+    progress(message: string) {
+      if (process.stderr.isTTY && !flags.getBool('quiet')) {
+        write(process.stderr, `${stderrPalette.dim(message)}\n`);
+      }
+    },
+  };
+}
+
+/** Guard help is always synchronous (no subcommand means no scan). */
+function guardHelpText(flags: Flags, palette: Palette): string {
+  const result = runGuard([], flags, { cwd: process.cwd(), palette, progress: () => undefined });
+  return result instanceof Promise ? '' : result.stdout;
 }
 
 interface Resolution {
@@ -65,6 +118,7 @@ function resolveCommand(command: string, positionals: string[]): Resolution {
 
 function main(argv: readonly string[]): number {
   const stdoutPalette = paletteFor(process.stdout);
+  const stderrPalette = paletteFor(process.stderr);
   const parsed = parseArgs(argv, SPECS, ALIASES);
   const flags = parsed.flags;
 
@@ -79,6 +133,10 @@ function main(argv: readonly string[]): number {
       write(process.stdout, renderMainHelp(stdoutPalette));
       return 0;
     }
+    if (target === 'guard') {
+      write(process.stdout, guardHelpText(flags, stdoutPalette));
+      return 0;
+    }
     const generator = findGenerator(target);
     if (!generator) throw unknownCommand(target);
     write(process.stdout, renderCommandHelp(generator, stdoutPalette, target));
@@ -88,6 +146,15 @@ function main(argv: readonly string[]): number {
   if (parsed.command === null) {
     write(process.stdout, renderMainHelp(stdoutPalette));
     return 0;
+  }
+
+  if (parsed.command === 'guard') {
+    try {
+      return writeGuardResult(runGuard(parsed.positionals, flags, guardIo(flags, stdoutPalette, stderrPalette)), stderrPalette);
+    } catch (error) {
+      if (error instanceof MintError) return failGuard(error, stderrPalette);
+      throw error;
+    }
   }
 
   const { generator, args, shorthandSize } = resolveCommand(parsed.command, parsed.positionals);

@@ -47,6 +47,11 @@ export function renderMainHelp(palette: Palette): string {
     lines.push('');
   }
 
+  lines.push(palette.bold('protect'));
+  lines.push(`  ${palette.green('guard'.padEnd(width))}${'Find leaked secrets and risky files in a project'}`);
+  lines.push(`  ${' '.repeat(width)}${palette.dim('mint guard scan --staged')}`);
+  lines.push('');
+
   lines.push(palette.bold('common options'));
   lines.push(...renderFlagTable([...SIZE_FLAGS, ...GLOBAL_FLAGS.filter((spec) => spec.name !== 'help' && spec.name !== 'version')], palette));
   lines.push('');
@@ -58,9 +63,12 @@ export function renderMainHelp(palette: Palette): string {
   lines.push(`  mint nanoid --size 12 --count 5 --json`);
   lines.push(`  mint 32 --base58`);
   lines.push(`  echo "$(mint aes --iv --format base64)"`);
+  lines.push(`  mint guard scan --staged`);
   lines.push('');
   lines.push(`${palette.dim('Every value comes from node:crypto (CSPRNG) with rejection sampling - never Math.random().')}`);
-  lines.push(`${palette.dim('Run')} mint <command> --help ${palette.dim('for the flags of a single generator.')} ${palette.dim(REPO_URL)}`);
+  lines.push(`${palette.bold('generate with mint, protect with mint guard.')}`);
+  lines.push(`${palette.dim('Run')} mint <command> --help ${palette.dim('for a single generator,')} mint guard --help ${palette.dim('for the scanner.')}`);
+  lines.push(`${palette.dim(REPO_URL)}`);
   return `${lines.join('\n')}\n`;
 }
 
