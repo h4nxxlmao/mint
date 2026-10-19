@@ -368,6 +368,40 @@ expectOk('mint int --bits 128', ['int', '--bits', '128']);
 expectOk('mint 32 --count 3', ['32', '--count', '3']);
 expectOk('mint uuid --v7 --json --count 3', ['uuid', '--v7', '--json', '--count', '3']);
 
+// ------------------------------------------------------------------- guard
+const guardHelp = run(['guard']);
+checks++;
+check(
+  'mint guard help',
+  guardHelp.status === 0 && /scan/.test(guardHelp.stdout) && /rotate-help/.test(guardHelp.stdout),
+  `exit ${guardHelp.status}`,
+);
+
+for (const command of ['scan', 'env', 'baseline', 'init', 'install-hook', 'uninstall-hook', 'rotate-help', 'rules']) {
+  const help = run(['guard', command, '--help']);
+  checks++;
+  check(
+    `mint guard ${command} --help`,
+    help.status === 0 && help.stdout.includes('usage') && help.stdout.includes(command),
+    `exit ${help.status}`,
+  );
+}
+
+const guardRules = run(['guard', 'rules', '--format', 'json']);
+checks++;
+try {
+  const parsed = JSON.parse(guardRules.stdout);
+  check('mint guard rules --format json', guardRules.status === 0 && Array.isArray(parsed.rules) && parsed.rules.length >= 30, 'unexpected payload');
+} catch (error) {
+  check('mint guard rules --format json', false, `not JSON: ${String(error)}`);
+}
+
+expectOk('mint guard rotate-help github-token', ['guard', 'rotate-help', 'github-token']);
+expectOk('mint guard scan (this repository is clean)', ['guard', 'scan', '--fail-on', 'high']);
+expectFailure('error: mint guard nope -> exit 2', ['guard', 'nope'], 2);
+expectFailure('error: mint guard scan --count 3 -> exit 2', ['guard', 'scan', '--count', '3'], 2);
+expectFailure('error: mint guard scan --fail-on nope -> exit 2', ['guard', 'scan', '--fail-on', 'nope'], 2);
+
 // distinct values across runs (only for generators with plenty of entropy)
 const uniqueness = ['bytes', 'uuid', 'ulid', 'ksuid', 'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'aes', 'token', 'session', 'apikey', 'jwt-secret', 'passphrase', 'password', 'salt', 'hmac', 'typeid', 'webhook-secret', 'base58', 'mac', 'ipv6'];
 for (const name of uniqueness) {
