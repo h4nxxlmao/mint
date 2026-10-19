@@ -55,7 +55,7 @@ export type MintOptions = Record<string, string | number | boolean>;
  * Generate one value.
  *
  * ```js
- * import { mint } from '@npm-install-hanx/mint';
+ * import { mint } from '@xnah/mint';
  * mint('uuid');                                  // v4 uuid
  * mint('hex', { bytes: 32 });                    // 64 hex characters
  * mint('pick', {}, ['red', 'green', 'blue']);    // random choice

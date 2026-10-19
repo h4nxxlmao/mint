@@ -36,7 +36,7 @@ export function hookBlock(failOn: Severity): string {
     '    exit 1',
     '  }',
     'else',
-    '  echo "mint guard: not installed, skipping secret scan (npm i -g @npm-install-hanx/mint)" >&2',
+    '  echo "mint guard: not installed, skipping secret scan (npm i -g @xnah/mint)" >&2',
     'fi',
     HOOK_END,
   ].join('\n');

@@ -22,7 +22,7 @@ jobs:
           node-version: 22
 
       - name: mint guard scan
-        run: npx --yes @npm-install-hanx/mint guard scan --fail-on high --format sarif > mintguard.sarif
+        run: npx --yes @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
 
       - name: Upload SARIF to GitHub code scanning
         if: always()

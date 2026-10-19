@@ -27,10 +27,10 @@ $ mint 32
 
 ```console
 # globally
-npm install -g @npm-install-hanx/mint
+npm install -g @xnah/mint
 
 # or run it without installing
-npx @npm-install-hanx/mint uuid
+npx @xnah/mint uuid
 
 # or from source
 git clone https://github.com/h4nxxlmao/mint
@@ -38,6 +38,9 @@ cd mint && npm install && npm run build && node dist/cli.js --help
 ```
 
 The package installs a `mint` binary. Requires Node.js 18 or newer.
+
+> **Note:** this package was previously published as `@npm-install-hanx/mint`. That name is
+> deprecated — use `@xnah/mint`.
 
 ## Generators
 
@@ -292,7 +295,7 @@ and lets the commit through, so tooling never blocks you by accident.
 ### GitHub Actions
 
 Copy [`.github/workflows/mintguard.yml`](./.github/workflows/mintguard.yml) — it runs
-`npx @npm-install-hanx/mint guard scan --fail-on high --format sarif` and uploads the
+`npx @xnah/mint guard scan --fail-on high --format sarif` and uploads the
 result to GitHub code scanning:
 
 ```yaml
@@ -305,7 +308,7 @@ steps:
   - uses: actions/setup-node@v4
     with:
       node-version: 22
-  - run: npx @npm-install-hanx/mint guard scan --fail-on high --format sarif > mintguard.sarif
+  - run: npx @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
   - uses: github/codeql-action/upload-sarif@v3
     if: always()
     with:
@@ -387,7 +390,7 @@ rather than a public issue.
 ## Programmatic use
 
 ```js
-import { mint, mintValue, sampleChars, randomIntBelow } from '@npm-install-hanx/mint';
+import { mint, mintValue, sampleChars, randomIntBelow } from '@xnah/mint';
 
 mint('uuid');                                 // { value: '…', entropyBits: 122, fields: { version: 4 } }
 mintValue('hex', { bytes: 32 });              // '…' (64 hex characters)
@@ -397,8 +400,8 @@ randomIntBelow(6) + 1;                         // uniform 1-6
 ```
 
 The package is ESM-only (`"type": "module"`) and has no runtime dependencies. Use `import` from
-Node 18+, or `require('@npm-install-hanx/mint')` on Node 22.12+ where `require(esm)` is supported
-(on Node 18/20 use `const { mint } = await import('@npm-install-hanx/mint')`).
+Node 18+, or `require('@xnah/mint')` on Node 22.12+ where `require(esm)` is supported
+(on Node 18/20 use `const { mint } = await import('@xnah/mint')`).
 
 ## Contributing
 

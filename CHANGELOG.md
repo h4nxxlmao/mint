@@ -38,6 +38,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [S
 - A "protect" section in `mint --help` and the tagline *generate with mint, protect with mint guard*.
 - `.github/workflows/mintguard.yml` — a copy-paste GitHub Actions job that scans and uploads SARIF.
 
+### Changed
+
+- The package is published as **`@xnah/mint`**. The previous name,
+  `@npm-install-hanx/mint`, is deprecated and points here. The `mint` binary name is unchanged.
+
 ### Security
 
 - Findings, reports and baseline files only ever contain redacted previews (first four and last
