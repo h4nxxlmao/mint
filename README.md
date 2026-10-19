@@ -6,7 +6,7 @@ Zero-dependency CLI that mints cryptographically secure random secrets, tokens, 
 $ mint password
 rAktQB3}A]>X
 $ mint jwt-secret --env JWT_SECRET
-JWT_SECRET=2aT1b6zjj-J-CqZR_xhEFMormS-AU_DGl2pszNKdcGxGO2WQZkRA_j0JCJUtfCVrvlaEmWcLiL1hm8medHdDZw
+JWT_SECRET=your-256-bit-secret-here
 $ mint uuid --v7
 01a14f70-5d77-7dfe-9505-11c851de07b4
 $ mint passphrase --words 4
@@ -20,6 +20,8 @@ $ mint 32
 - **No dependencies.** Not at runtime, not in your `node_modules` tree.
 - **Pipe friendly.** One value on stdout, newline terminated, colors only on a TTY.
 - **40+ generators**, one consistent flag surface, hand-rolled argument parser with helpful errors.
+- **Protect what you generate.** `mint guard` scans a project for leaked secrets, gates CI, and
+  tells you how to rotate them — *generate with mint, protect with mint guard*.
 
 ## Install
 
@@ -134,6 +136,209 @@ $ mint aes --bits 128 --iv            # key:iv, hex by default
 $ mint uuid --entropy                 # value on stdout, "entropy: 122 bits" on stderr
 ```
 
+## mint guard
+
+`mint guard` finds leaked secrets and risky files in a project, explains why each one
+matters, and points at the `mint` command that generates a replacement.
+
+> **generate with mint, protect with mint guard**
+
+It is offline by design: no network calls, no telemetry, and it never writes a secret
+to disk, a report or a baseline file.
+
+### Quick start
+
+```console
+$ mint guard scan                                  # scan the working tree
+$ mint guard scan --staged                         # only the git index (pre-commit)
+$ mint guard scan --history --since "2 weeks ago"  # every commit, with hash/author/date
+$ mint guard env                                   # .env hygiene only
+$ mint guard init                                  # write .mintguard.json + .mintguardignore
+$ mint guard baseline                              # accept today's findings, gate on new ones
+$ mint guard install-hook                          # block commits that contain secrets
+$ mint guard rotate-help aws-access-key-id         # how to rotate + what to generate
+```
+
+Exit codes: **0** clean, **1** findings at or above `--fail-on` (default `medium`), **2** usage or runtime error.
+
+### What it scans
+
+`scan` skips `node_modules`, `.git`, build output (`dist`, `build`, `out`, `coverage`,
+`.next`, `vendor`, `target`, ...), lockfiles, binary files and anything larger than
+`--max-file-size` (default 1 MB). It honours `.gitignore` (including nested files and
+negations), `.mintguardignore` and the config `exclude` list. Lines longer than 8 KB
+are skipped so minified bundles cannot stall a scan.
+
+### Rules
+
+Pattern rules are data-driven (`src/guard/rules.ts`): id, name, regex, severity,
+keywords, why and a replacement command. Run `mint guard rules` for the live list.
+
+| Rule | Severity | Finds |
+| --- | --- | --- |
+| `private-key-block` | critical | `BEGIN … PRIVATE KEY` blocks (RSA, EC, OpenSSH, PGP) |
+| `aws-secret-access-key` | critical | AWS secret keys in `aws_secret_access_key = …` assignments |
+| `gcp-service-account-json` | critical | service account JSON with an embedded private key |
+| `github-token` | critical | `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_` tokens |
+| `gitlab-token` | critical | `glpat-` personal access tokens |
+| `npm-token` | critical | `npm_` tokens (including `.npmrc` auth tokens) |
+| `pypi-token` | critical | `pypi-AgEIcHlwaS5vcmc…` upload tokens |
+| `openai-api-key` | critical | `sk-…` and `sk-proj-…` keys |
+| `anthropic-api-key` | critical | `sk-ant-…` keys |
+| `stripe-secret-key` | critical | `sk_live_` and `rk_live_` keys |
+| `mint-apikey` | critical | keys minted with `mint apikey --prefix mint_` |
+| `database-url-password` | critical | `postgres://`, `mysql://`, `mongodb+srv://`, `redis://` … with an inline password |
+| `twilio-auth-token` | critical | Twilio auth tokens |
+| `supabase-service-role` | critical | `service_role` JWTs (they bypass row level security) |
+| `aws-access-key-id` | high | `AKIA…`, `ASIA…` and other access key ids |
+| `google-api-key` | high | `AIza…` API keys |
+| `huggingface-token` | high | `hf_…` tokens |
+| `slack-token` | high | `xoxb-`, `xoxp-`, `xoxa-`, `xoxr-`, `xoxs-` tokens |
+| `slack-webhook` | high | `hooks.slack.com/services/…` URLs |
+| `discord-bot-token` | high | Discord bot tokens |
+| `discord-webhook` | high | `discord.com/api/webhooks/…` URLs |
+| `twilio-account-sid` | medium | Twilio account SIDs |
+| `sendgrid-api-key` | high | `SG.…` API keys |
+| `mailgun-api-key` | high | `key-…` API keys |
+| `telegram-bot-token` | high | `<id>:AA…` bot tokens |
+| `supabase-token` | high | `sbp_…` management tokens |
+| `firebase-server-key` | medium | legacy FCM server keys |
+| `jwt` | medium | compact JWTs (`eyJ….eyJ….…`) |
+| `generic-assignment` | medium | `password=`, `secret=`, `api_key=`, `token=` … with a non-placeholder value |
+| `entropy-string` | high | high-entropy quoted/assigned strings with no known format |
+
+Env-only rules (used by `mint guard env`): `env-file-tracked` (critical),
+`env-file-not-ignored` (high), `env-no-example` (low).
+
+### Entropy detection
+
+Unknown formats are caught by Shannon entropy over quoted strings and assignment
+values: at least 20 characters, at most 200, and at least `--entropy-threshold`
+bits per character (default 4.5). These are rejected as false positives:
+
+- UUIDs, SHA/MD5 digests, git hashes, lockfile integrity strings
+- `data:image/…`, URLs, file paths and source snippets
+- alphabets and sample lists (long ascending/descending runs)
+- placeholders: `changeme`, `your_key_here`, `replace-me`, `xxxx`, `<…>`, `${…}`,
+  `{{ … }}`, `process.env.*`, `os.environ[…]`, type names, `TODO`, `null`
+- anything already matched by a pattern rule on the same span
+
+Tune it with `--entropy-threshold 5` (strict) or `--entropy-threshold 4` (noisy), or
+disable it with `"entropySeverity"` / `"disabledRules": ["entropy-string"]`.
+
+### Suppression
+
+```ts
+const token = '…';                    // mintguard:ignore
+// mintguard:ignore-next-line
+const other = '…';
+const scoped = '…';                   // mintguard:ignore generic-assignment
+```
+
+- `.mintguardignore` — gitignore-style paths, shared with the team.
+- `.mintguard.json` → `disabledRules: ["rule-id"]` or `rules: { "rule-id": { "disabled": true } }`.
+- **Baseline** — `mint guard baseline` writes a salted hash per finding to
+  `.mintguard-baseline.json`. Later scans ignore those and fail only on new leaks.
+  The file contains no secrets and no previews, only `sha256(salt ‖ rule ‖ file ‖ secret)`.
+
+### Configuration (`.mintguard.json`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `failOn` | `"medium"` | severity that makes a scan exit 1 |
+| `entropyThreshold` | `4.5` | bits per character for entropy findings |
+| `entropyMinLength` | `20` | minimum candidate length |
+| `entropyMaxLength` | `200` | maximum candidate length |
+| `entropySeverity` | `"high"` | severity for entropy findings |
+| `maxFileSize` | `1048576` | skip larger files |
+| `includeLockfiles` | `false` | scan lockfiles too |
+| `disabledRules` | `[]` | rule ids to skip |
+| `rules` | `{}` | per-rule `{ severity, disabled }` overrides |
+| `customRules` | `[]` | your own `{ id, name, regex, severity, keywords, why, mintCommand }` |
+| `exclude` | `[]` | extra gitignore-style paths |
+| `baselineFile` | `".mintguard-baseline.json"` | where the baseline lives |
+| `ignoreFiles` | `[".mintguardignore"]` | ignore files to read |
+| `inlineComments` | `true` | honour `mintguard:ignore` comments |
+
+A custom rule:
+
+```json
+{
+  "customRules": [
+    {
+      "id": "internal-key",
+      "name": "Internal service key",
+      "regex": "INTERNAL_[A-Za-z0-9]{24}",
+      "severity": "critical",
+      "keywords": ["internal_"]
+    }
+  ]
+}
+```
+
+### Pre-commit hook
+
+```console
+$ mint guard install-hook
+$ mint guard install-hook --fail-on high
+$ mint guard uninstall-hook
+```
+
+The hook runs `mint guard scan --staged --fail-on medium`. It never replaces an
+existing hook unless you pass `--force`, and even then it inserts its block after the
+shebang so the previous hook keeps running. If `mint` is not installed the hook warns
+and lets the commit through, so tooling never blocks you by accident.
+
+### GitHub Actions
+
+Copy [`.github/workflows/mintguard.yml`](./.github/workflows/mintguard.yml) — it runs
+`npx @npm-install-hanx/mint guard scan --fail-on high --format sarif` and uploads the
+result to GitHub code scanning:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 22
+  - run: npx @npm-install-hanx/mint guard scan --fail-on high --format sarif > mintguard.sarif
+  - uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with:
+      sarif_file: mintguard.sarif
+```
+
+### Rotation
+
+Deleting a line does not undo an exposure: assume the secret was scraped the moment it
+was pushed. `mint guard rotate-help <finding-id|rule-id>` prints the provider playbook
+and the exact command to mint a replacement:
+
+```console
+$ mint guard rotate-help stripe-secret-key
+Stripe - Stripe secret key
+  rotate it
+    1. Roll the live key in the Stripe dashboard (Developers > API keys > Roll key).
+    ...
+  generate the replacement with mint
+    mint apikey --prefix sk_live_ --length 32 --checksum
+```
+
+`--fix` prints the same plan without touching any file, and never rewrites history.
+History cleanup is shown as text only (`git filter-repo --path <file> --invert-paths`).
+
+### What guard never does
+
+- No network requests, no telemetry, no update checks, no remote rule feeds.
+- No full secret in the terminal report, JSON, SARIF, markdown or the baseline file —
+  previews show the first four and last two characters, shorter values are fully masked.
+- No file edits, no `git add`, no history rewriting. `--fix` only prints instructions.
+- No execution of repository code, hooks or scripts while scanning.
+
 ## Security notes
 
 **What mint guarantees**
@@ -221,13 +426,20 @@ Guidelines:
 1. **New generators are one file plus a registry entry.** Add them to the matching
    `src/generators/*.ts` module, give them a one-line summary, usage line, examples and the list of
    flags they accept, then add them to a category in `src/registry.ts`.
-2. **Never use `Math.random()`.** Build on `src/random.ts` so the rejection sampling and entropy
+2. **New guard rules are one object.** Add `{ id, name, regex, severity, keywords, why,
+   mintCommand, rotation }` to `RULES` in `src/guard/rules.ts`, add a sample to
+   `test/guard-fixtures.ts`, and the rule test will check the regex, the placeholder
+   filters and that `mintCommand` is a valid mint invocation.
+3. **Never use `Math.random()`.** Build on `src/random.ts` so the rejection sampling and entropy
    accounting stay in one place.
-3. **Every generator needs tests** in `test/generators.test.ts` covering format, length, charset,
-   uniqueness over many runs and, where relevant, bias.
-4. **Keep the CLI surface honest.** If a generator cannot support a flag, do not declare it — the
+4. **Never print a raw secret.** Reports and the baseline only ever see `previewSecret()`
+   output or a salted hash; `test/guard-redact.test.ts` enforces it across all formats.
+5. **Every generator needs tests** in `test/generators.test.ts` covering format, length, charset,
+   uniqueness over many runs and, where relevant, bias. Guard tests live in `test/guard-*.test.ts`
+   and build their fixtures in temp directories at run time.
+6. **Keep the CLI surface honest.** If a generator cannot support a flag, do not declare it — the
    dispatcher rejects unsupported flags with a helpful message.
-5. Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`), no AI/co-author trailers.
+7. Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`), no AI/co-author trailers.
 
 ## License
 

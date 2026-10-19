@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "failOn": "medium",
+  "entropyThreshold": 4.5,
+  "entropyMinLength": 20,
+  "entropyMaxLength": 200,
+  "entropySeverity": "high",
+  "maxFileSize": 1048576,
+  "includeLockfiles": false,
+  "disabledRules": [],
+  "rules": {},
+  "customRules": [],
+  "exclude": [],
+  "baselineFile": ".mintguard-baseline.json",
+  "ignoreFiles": [
+    ".mintguardignore"
+  ],
+  "inlineComments": true
+}

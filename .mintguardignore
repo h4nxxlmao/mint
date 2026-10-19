@@ -1,0 +1,13 @@
+# Paths mint guard never scans, in gitignore syntax.
+# Commit this file so the whole team shares the exclusions.
+
+# The test suite embeds fake secrets on purpose (each rule sample is assembled from
+# fragments at run time) to exercise every detection path. Scanning it would report
+# the fixtures themselves, so the tests are excluded from repository scans.
+# The committed fixture at test/fixtures/guard/clean-project is scanned by its own
+# test and contains placeholders only.
+test/
+
+# Add generated or vendored trees here too:
+# dist/
+# vendor/
