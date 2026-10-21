@@ -3,6 +3,38 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-10-19
+
+### Added
+
+- **`mint keypair`** — Ed25519 (default) or RSA key pairs as PEM, with `--public` for the SPKI
+  public key and `--openssh` for an `ssh-ed25519` authorized_keys line (`--comment` included).
+  Keys are generated with `node:crypto` and printed to stdout; mint writes no files.
+- **`mint mnemonic`** — BIP-39 recovery phrases (12/15/18/21/24 words) with a real SHA-256
+  checksum, built on the bundled 2048-word list. `--bytes`/`--bits` round up to the next valid
+  phrase length. mint generates the phrase only; it does not derive wallet keys.
+- **`mint totp-secret`** — RFC 4226 shared secret for authenticator apps, base32 by default
+  (160 bits), with `--bytes`, `--bits` and `--format`.
+- **`mint guard check [value]`** — triage a single value (argument or stdin) against the full rule
+  set: what it looks like, why it matters, and the mint command that replaces it. Redacted output,
+  `--json`, and exit codes 0/1/2 so it works in scripts.
+- **`mint guard scan --diff <rev>`** — scan only the lines a revision added (`<rev>...HEAD`), which
+  is the right mode for pull-request CI.
+- **`mint guard scan <file>`** — scan a single file instead of a directory.
+- `--staged`, `--diff` and `--history` now honour the path argument and `.mintguardignore`, so a
+  `test/` entry hides those files in every mode.
+- `mint guard env` now covers `.envrc` (direnv) files alongside `.env*`.
+
+### Fixed
+
+- `--env`, `--prefix` and `--suffix` apply to every line of multi-line values (`pick`, `shuffle`)
+  instead of only the first or last one. `--env` numbers them (`NAME_1`, `NAME_2`, ...).
+- `--no-newline` also strips a trailing newline that the value itself carries (PEM keys).
+- `mint 0` now says the size must be at least 1 instead of claiming it "does not look like a size".
+- Guard is harder to trip on code: short identifiers (`privatePem`) and dotted member access
+  (`config.apiKey`) are no longer reported as hard-coded credentials, while JWTs still are.
+- Guard reports files it could not read instead of silently skipping them.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

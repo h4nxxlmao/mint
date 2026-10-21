@@ -61,6 +61,7 @@ Every generator accepts `--length <n>` (characters), `--bytes <n>` or `--bits <n
 | `mint chars` | characters from a preset or custom charset | `mint chars --charset safe --length 24` |
 | `mint password` | strong password with digits and symbols | `mint password --length 32` |
 | `mint passphrase` | diceware-style words from 2048-word list | `mint passphrase --words 6 --separator -` |
+| `mint mnemonic` | BIP-39 recovery phrase, 12 to 24 words | `mint mnemonic --words 24` |
 | `mint pin` | numeric PIN | `mint pin --length 4` |
 | `mint uuid` | RFC 9562 UUID v4, v7, v1 or nil | `mint uuid --v7 --upper` |
 | `mint ulid` | ULID: timestamp + 80 random bits | `mint ulid --lower` |
@@ -72,10 +73,12 @@ Every generator accepts `--length <n>` (characters), `--bytes <n>` or `--bits <n
 | `mint snowflake` | Twitter-style 64-bit id | `mint snowflake --worker 7` |
 | `mint typeid` | type prefix + UUIDv7 in base32 | `mint typeid user` |
 | `mint jwt-secret` | HS256/384/512 sized signing secret | `mint jwt-secret --algo hs512` |
+| `mint totp-secret` | TOTP/HOTP shared secret (base32) | `mint totp-secret --bytes 20` |
 | `mint apikey` | API key with prefix and optional checksum | `mint apikey --prefix sk_live_ --checksum` |
 | `mint token` | generic bearer token | `mint token --format hex` |
 | `mint hmac` | HMAC key sized for sha256/sha512 | `mint hmac --algo sha512` |
 | `mint aes` | AES-128/192/256 key, optional IV | `mint aes --bits 256 --iv` |
+| `mint keypair` | Ed25519 or RSA key pair (PEM, `--openssh`) | `mint keypair --openssh --comment me@host` |
 | `mint salt` | salt for password hashing | `mint salt --bytes 16` |
 | `mint session` | session id, 256-bit | `mint session` |
 | `mint webhook-secret` | webhook signing secret (`whsec_…`) | `mint webhook-secret` |
@@ -153,8 +156,11 @@ to disk, a report or a baseline file.
 
 ```console
 $ mint guard scan                                  # scan the working tree
+$ mint guard scan src/config.ts                    # or a single file
 $ mint guard scan --staged                         # only the git index (pre-commit)
+$ mint guard scan --diff origin/main               # only what this branch adds (CI)
 $ mint guard scan --history --since "2 weeks ago"  # every commit, with hash/author/date
+$ mint guard check "sk_live_..."                   # triage one value
 $ mint guard env                                   # .env hygiene only
 $ mint guard init                                  # write .mintguard.json + .mintguardignore
 $ mint guard baseline                              # accept today's findings, gate on new ones
@@ -171,6 +177,41 @@ Exit codes: **0** clean, **1** findings at or above `--fail-on` (default `medium
 `--max-file-size` (default 1 MB). It honours `.gitignore` (including nested files and
 negations), `.mintguardignore` and the config `exclude` list. Lines longer than 8 KB
 are skipped so minified bundles cannot stall a scan.
+
+A path may be a directory or a single file. `--staged`, `--diff` and `--history` only
+report files under that path, and they apply `.mintguardignore` the same way the
+working-tree scan does (a `test/` entry hides those files in every mode).
+
+- `--staged` reads the index (`git diff --cached`), so it sees exactly what a commit
+  would contain.
+- `--diff <rev>` streams `git diff <rev>...HEAD` and reports only added lines, with
+  their line numbers in the new file. This is the mode for pull-request CI.
+- `--history` streams `git log -p --all` with a bounded buffer and reports the commit
+  hash, author and date that introduced each secret.
+
+### Triage one value
+
+`mint guard check` runs the same rules against a single string, which is what you want
+when a value turns up in a log, a chat message or a config file:
+
+```console
+$ pbpaste | mint guard check
+mint guard check
+
+  ! looks like a secret (Stripe)
+
+  CRITICAL stripe-secret-key - Stripe secret key
+           preview: sk_l...L2
+           why: A live Stripe key can move money: create charges, issue refunds and read customer data.
+           replace: mint apikey --prefix sk_live_ --length 32 --checksum
+           rotation: mint guard rotate-help stripe-secret-key
+
+  rotate it first - the value is compromised the moment it was shared.
+```
+
+Prefer stdin over an argument: a value passed on the command line ends up in your
+shell history. Exit codes are the same as `scan` (0 clean, 1 detected, 2 error), so
+`mint guard check` works as a guard in scripts.
 
 ### Rules
 
@@ -370,10 +411,10 @@ History cleanup is shown as text only (`git filter-repo --path <file> --invert-p
 
 - It does not store, log, transmit or persist secrets. Nothing touches the network, and there is
   no config file, history file or telemetry.
-- It does not encrypt anything, manage keys, or generate RSA/EC key pairs. For asymmetric keys use
-  `ssh-keygen`, `openssl` or your platform's keystore.
-- It does not evaluate password strength, check breach lists, or implement BIP-39 mnemonics. The
-  bundled word list is used only as a source of distinct words for passphrases.
+- It does not encrypt, sign or manage keys. `mint keypair` prints a freshly generated key pair
+  (Ed25519 or RSA) to stdout for you to store somewhere safe; mint never writes it to disk.
+- It does not evaluate password strength or check breach lists. `mint mnemonic` generates a
+  BIP-39 phrase but does not derive wallet keys or addresses from it.
 - It does not hide secrets from your shell: values passed through `--env`, printed to a terminal
   or copied to the clipboard can end up in scrollback, history, or your OS clipboard manager.
   Prefer `--copy`, write to a file with a restrictive umask, or pipe directly into your secret
