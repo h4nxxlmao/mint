@@ -1,6 +1,6 @@
 {
   "name": "@xnah/mint",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Zero-dependency CLI that mints cryptographically secure random secrets, tokens, passwords and identifiers.",
   "license": "MIT",
   "type": "module",
