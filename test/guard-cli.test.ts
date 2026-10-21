@@ -245,7 +245,12 @@ test('baseline hides known findings and only new leaks fail', (context) => {
   assert.equal(JSON.parse(after.stdout).findings.length, 1);
 
   const ignoredBaseline = run(['guard', 'scan', tree.dir, '--no-baseline', '--format', 'json']);
-  assert.ok(JSON.parse(ignoredBaseline.stdout).findings.length > 1);
+  const withoutBaseline = JSON.parse(ignoredBaseline.stdout);
+  assert.ok(withoutBaseline.findings.length > 1);
+  assert.ok(
+    withoutBaseline.findings.every((finding: { file: string }) => finding.file !== '.mintguard-baseline.json'),
+    'the baseline file itself must never be reported',
+  );
 });
 
 test('init creates the config and ignore files without clobbering', (context) => {

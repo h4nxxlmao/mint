@@ -74,12 +74,29 @@ function isSuppressed(suppression: Suppression | undefined, ruleId: string): boo
   return suppression.rules.has(ruleId);
 }
 
+/** `privatePem`, `publicKey` - references to variables, not literal credentials. */
+const IDENTIFIER_LIKE = /^[a-z][A-Za-z0-9_]*$/u;
+
+/**
+ * `config.apiKey`, `process.env` - member access, not a literal. Only short dotted
+ * identifiers qualify; a JWT's segments are far too long to be mistaken for code.
+ */
+function isMemberAccess(value: string): boolean {
+  if (!value.includes('.')) return false;
+  const parts = value.split('.');
+  if (parts.length < 2 || parts.length > 4) return false;
+  return parts.every((part) => part.length > 0 && part.length <= 20 && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(part));
+}
+
 function acceptableValue(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length < 4) return false;
   if (/^(?:true|false|null|none|nil|undefined|\d+)$/iu.test(trimmed)) return false;
   if (hasSequentialRun(trimmed)) return false;
   if (isUuidValue(trimmed)) return false;
+  // Short identifiers and dotted references are code, not credentials.
+  if (IDENTIFIER_LIKE.test(trimmed) && trimmed.length < 12) return false;
+  if (isMemberAccess(trimmed)) return false;
   return classifyPlaceholder(trimmed) === undefined;
 }
 

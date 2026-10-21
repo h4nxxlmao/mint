@@ -1,13 +1,24 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { UsageError } from '../errors.js';
 import { VERSION } from '../version.js';
 import { baselineSalt, loadBaseline, readBaseline, writeBaseline } from './baseline.js';
+import { readCheckInput, renderCheckJson, renderCheckText, scanValue } from './check.js';
 import { resolveOptions, type ResolvedOptions } from './config.js';
 import { runEnvChecks } from './env.js';
 import { installHook, uninstallHook } from './hook.js';
 import { initGuard } from './init.js';
-import { requireRepo, repoRoot, resolveSince, stagedContent, stagedPaths, streamHistory } from './git.js';
+import {
+  assertRevision,
+  requireRepo,
+  repoRoot,
+  resolveSince,
+  stagedContent,
+  stagedPaths,
+  streamDiff,
+  streamHistory,
+} from './git.js';
+import type { IgnoreSet } from './gitignore.js';
 import { allRulesWithEnv, renderRotateHelp, renderRuleTable } from './rotate.js';
 import { defaultRotation } from './rules.js';
 import { Scanner, eligibleRules, fileMarkers, type ScanOptions } from './scan.js';
@@ -55,6 +66,66 @@ function scanRoot(context: GuardContext): string {
   return absolute;
 }
 
+/**
+ * What a scan should look at: a directory, or a single file. Git based scans use
+ * the repository-relative `prefix` / `filePath` to filter their file lists.
+ */
+interface ScanTarget {
+  /** Directory used for config discovery and ignore files. */
+  root: string;
+  /** Absolute path when a single file was given. */
+  file?: string;
+  /** Repository-relative prefix of `root` (empty at the repository root). */
+  prefix: string;
+  /** Repository-relative path of the single file. */
+  filePath?: string;
+}
+
+function scanTarget(context: GuardContext): ScanTarget {
+  const target = context.positionals[0] ?? '.';
+  const absolute = resolve(context.cwd, target);
+  let stat;
+  try {
+    stat = statSync(absolute);
+  } catch {
+    throw new UsageError(`path not found: ${target}`);
+  }
+  if (stat.isDirectory()) {
+    return { root: absolute, prefix: displayPrefix(absolute) };
+  }
+  if (stat.isFile()) {
+    const root = dirname(absolute);
+    const prefix = displayPrefix(root);
+    return { root, file: absolute, prefix, filePath: `${prefix}${basename(absolute)}` };
+  }
+  throw new UsageError(`not a file or directory: ${target}`);
+}
+
+function matchesTarget(path: string, target: ScanTarget): boolean {
+  if (target.filePath !== undefined) return path === target.filePath;
+  return target.prefix === '' || path.startsWith(target.prefix);
+}
+
+/**
+ * Tool files that never contain findings worth reporting. The baseline in particular
+ * holds a random salt and hashes, which the entropy detector would otherwise flag.
+ */
+function toolFileNames(options: ResolvedOptions): Set<string> {
+  return new Set([basename(options.baselineFile), '.mintguard-baseline.json']);
+}
+
+function isToolFile(path: string, options: ResolvedOptions): boolean {
+  return toolFileNames(options).has(basename(path));
+}
+
+function isIgnoredPath(path: string, target: ScanTarget, ignore: IgnoreSet, options: ResolvedOptions): boolean {
+  // An explicitly named file is always scanned, even if an ignore rule matches it.
+  if (target.filePath !== undefined) return false;
+  if (isToolFile(path, options)) return true;
+  const local = target.prefix !== '' && path.startsWith(target.prefix) ? path.slice(target.prefix.length) : path;
+  return ignore.ignoresPath(local);
+}
+
 function settings(options: ResolvedOptions, overrides: Partial<ScanOptions> = {}): ScanOptions {
   return {
     rules: options.rules,
@@ -99,20 +170,48 @@ function displayPrefix(root: string): string {
   return `${inside}/`;
 }
 
-function scanWorktree(context: GuardContext, options: ResolvedOptions, overrides: Partial<ScanOptions> = {}): ScanResult {
-  const root = scanRoot(context);
-  const prefix = displayPrefix(root);
-  const ignore = buildIgnoreSet(root, options.config, options.useGitignore);
+function scanWorktree(
+  context: GuardContext,
+  options: ResolvedOptions,
+  target: ScanTarget,
+  overrides: Partial<ScanOptions> = {},
+): ScanResult {
+  const ignore = buildIgnoreSet(target.root, options.config, options.useGitignore);
   const scanner = new Scanner(settings(options, overrides));
   const stats = newStats('worktree');
-  let seen = 0;
 
+  if (target.file !== undefined) {
+    let buffer: Buffer;
+    try {
+      buffer = readFileSync(target.file);
+    } catch {
+      throw new UsageError(`cannot read ${target.filePath ?? target.file}`);
+    }
+    if (looksBinary(buffer)) {
+      stats.binaries++;
+      stats.filesSkipped++;
+    } else {
+      const content = buffer.toString('utf8');
+      stats.filesScanned = 1;
+      stats.bytesScanned = buffer.length;
+      const displayPath = target.filePath ?? basename(target.file);
+      scanner.scanContent(content, { file: displayPath, source: 'worktree' }, fileMarkers(content, options.rules));
+    }
+    const outcome = scanner.outcome();
+    stats.longLinesSkipped = outcome.longLinesSkipped;
+    stats.truncated = outcome.truncated;
+    return { findings: outcome.findings, baselined: outcome.baselined, stats, notes: [] };
+  }
+
+  let seen = 0;
+  const unreadable: string[] = [];
   for (const event of walkFiles({
-    root,
+    root: target.root,
     maxFileSize: options.maxFileSize,
     includeLockfiles: options.includeLockfiles,
     ignore,
     useGitignore: options.useGitignore,
+    extraSkipFiles: [...toolFileNames(options)],
   })) {
     if (event.type === 'skip') {
       stats.filesSkipped++;
@@ -126,6 +225,7 @@ function scanWorktree(context: GuardContext, options: ResolvedOptions, overrides
       buffer = readFileSync(event.absolute);
     } catch {
       stats.filesSkipped++;
+      unreadable.push(event.path);
       continue;
     }
     if (looksBinary(buffer)) {
@@ -135,7 +235,7 @@ function scanWorktree(context: GuardContext, options: ResolvedOptions, overrides
     }
 
     const content = buffer.toString('utf8');
-    const displayPath = prefix === '' ? event.path : `${prefix}${event.path}`;
+    const displayPath = target.prefix === '' ? event.path : `${target.prefix}${event.path}`;
     stats.filesScanned++;
     stats.bytesScanned += event.size;
     scanner.scanContent(content, { file: displayPath, source: 'worktree' }, fileMarkers(content, options.rules));
@@ -146,13 +246,20 @@ function scanWorktree(context: GuardContext, options: ResolvedOptions, overrides
   const outcome = scanner.outcome();
   stats.longLinesSkipped = outcome.longLinesSkipped;
   stats.truncated = outcome.truncated;
-  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes: [] };
+  const notes: string[] = [];
+  if (unreadable.length > 0) {
+    const listed = unreadable.slice(0, 3).join(', ');
+    const rest = unreadable.length > 3 ? ` and ${String(unreadable.length - 3)} more` : '';
+    notes.push(`${String(unreadable.length)} file(s) could not be read: ${listed}${rest}`);
+  }
+  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
 }
 
-function scanStaged(context: GuardContext, options: ResolvedOptions): ScanResult {
-  const root = scanRoot(context);
-  const repo = requireRepo(root, '"mint guard scan --staged"');
-  const paths = stagedPaths(repo);
+function scanStaged(context: GuardContext, options: ResolvedOptions, target: ScanTarget): ScanResult {
+  const repo = requireRepo(target.root, '"mint guard scan --staged"');
+  const ignore = buildIgnoreSet(target.root, options.config, options.useGitignore);
+  const allPaths = stagedPaths(repo);
+  const paths = allPaths.filter((path) => matchesTarget(path, target) && !isIgnoredPath(path, target, ignore, options));
   const scanner = new Scanner(settings(options));
   const stats = newStats('staged');
 
@@ -177,18 +284,21 @@ function scanStaged(context: GuardContext, options: ResolvedOptions): ScanResult
   const outcome = scanner.outcome();
   stats.longLinesSkipped = outcome.longLinesSkipped;
   stats.truncated = outcome.truncated;
-  const notes = paths.length === 0 ? ['nothing staged: git diff --cached is empty'] : [];
+  let notes: string[] = [];
+  if (allPaths.length === 0) notes = ['nothing staged: git diff --cached is empty'];
+  else if (paths.length === 0) notes = ['no staged changes for this path'];
   return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
 }
 
-async function scanHistory(context: GuardContext, options: ResolvedOptions): Promise<ScanResult> {
-  const root = scanRoot(context);
-  const repo = requireRepo(root, '"mint guard scan --history"');
+async function scanHistory(context: GuardContext, options: ResolvedOptions, target: ScanTarget): Promise<ScanResult> {
+  const repo = requireRepo(target.root, '"mint guard scan --history"');
+  const ignore = buildIgnoreSet(target.root, options.config, options.useGitignore);
   const since = context.flags.getString('since');
   const sinceArgs = since === undefined ? undefined : resolveSince(repo, since);
   const scanner = new Scanner(settings(options));
   const rules = eligibleRules(options.rules, null);
   const stats = newStats('history');
+  const seen = new Set<string>();
   let commits = 0;
 
   const summary = await streamHistory(
@@ -200,13 +310,15 @@ async function scanHistory(context: GuardContext, options: ResolvedOptions): Pro
         if (commits % 100 === 0) context.progress(`scanned ${String(commits)} commits...`);
       },
       scanLine(line, lineNumber, file, commit) {
+        if (!matchesTarget(file, target) || isIgnoredPath(file, target, ignore, options)) return;
+        seen.add(file);
         stats.bytesScanned += Buffer.byteLength(line, 'utf8') + 1;
         scanner.scanLine(line, lineNumber, { file, source: 'history', commit }, {}, rules);
       },
     },
   );
 
-  stats.filesScanned = summary.files;
+  stats.filesScanned = seen.size;
   const outcome = scanner.outcome();
   stats.longLinesSkipped = outcome.longLinesSkipped;
   stats.truncated = outcome.truncated;
@@ -214,6 +326,35 @@ async function scanHistory(context: GuardContext, options: ResolvedOptions): Pro
     `${String(summary.commits)} commit${summary.commits === 1 ? '' : 's'} scanned`,
     'history findings show the commit that introduced each secret',
   ];
+  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
+}
+
+async function scanDiff(
+  options: ResolvedOptions,
+  target: ScanTarget,
+  revision: string,
+): Promise<ScanResult> {
+  const repo = requireRepo(target.root, '"mint guard scan --diff"');
+  const ignore = buildIgnoreSet(target.root, options.config, options.useGitignore);
+  const scanner = new Scanner(settings(options));
+  const rules = eligibleRules(options.rules, null);
+  const stats = newStats('diff');
+  const seen = new Set<string>();
+
+  const summary = await streamDiff(repo, revision, {
+    scanLine(line, lineNumber, file) {
+      if (!matchesTarget(file, target) || isIgnoredPath(file, target, ignore, options)) return;
+      seen.add(file);
+      stats.bytesScanned += Buffer.byteLength(line, 'utf8') + 1;
+      scanner.scanLine(line, lineNumber, { file, source: 'diff' }, {}, rules);
+    },
+  });
+
+  stats.filesScanned = seen.size;
+  const outcome = scanner.outcome();
+  stats.longLinesSkipped = outcome.longLinesSkipped;
+  stats.truncated = outcome.truncated;
+  const notes = [`diff ${revision}...HEAD: ${String(summary.files)} changed file${summary.files === 1 ? '' : 's'}`];
   return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
 }
 
@@ -294,35 +435,66 @@ function stopTimer(stats: ScanStats, started: number): void {
 // ------------------------------------------------------------------ scan
 function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> {
   const flags = context.flags;
-  if (flags.getBool('staged') && flags.getBool('history')) {
-    throw new UsageError('use either --staged or --history, not both');
+  const modes = [flags.getBool('staged'), flags.getBool('history'), flags.has('diff')].filter((enabled) => enabled).length;
+  if (modes > 1) {
+    throw new UsageError('use only one of --staged, --history or --diff');
   }
   if (flags.getBool('staged') && flags.has('since')) {
     throw new UsageError('--since only applies to --history');
   }
+  if (flags.has('diff') && flags.has('since')) {
+    throw new UsageError('--since only applies to --history');
+  }
 
   const format = resolveFormat(flags);
-  const root = scanRoot(context);
-  const options = resolveOptions(context, root, loadBaseline);
+  const target = scanTarget(context);
+  const options = resolveOptions(context, target.root, loadBaseline);
   const started = startTimer();
+  const rules = allRulesWithEnv(options.rules);
 
   if (flags.getBool('history')) {
-    return scanHistory(context, options).then((result) => {
+    return scanHistory(context, options, target).then((result) => {
       stopTimer(result.stats, started);
-      const report = buildReport('history', result, options, root);
-      return finishReport(report, context, format, allRulesWithEnv(options.rules));
+      return finishReport(buildReport('history', result, options, target.root), context, format, rules);
+    });
+  }
+
+  if (flags.has('diff')) {
+    const revision = assertRevision(flags.getString('diff') ?? '', '--diff');
+    return scanDiff(options, target, revision).then((result) => {
+      stopTimer(result.stats, started);
+      return finishReport(buildReport('diff', result, options, target.root), context, format, rules);
     });
   }
 
   if (flags.getBool('staged')) {
-    const result = scanStaged(context, options);
+    const result = scanStaged(context, options, target);
     stopTimer(result.stats, started);
-    return finishReport(buildReport('staged', result, options, root), context, format, allRulesWithEnv(options.rules));
+    return finishReport(buildReport('staged', result, options, target.root), context, format, rules);
   }
 
-  const result = scanWorktree(context, options);
+  const result = scanWorktree(context, options, target);
   stopTimer(result.stats, started);
-  return finishReport(buildReport('worktree', result, options, root), context, format, allRulesWithEnv(options.rules));
+  return finishReport(buildReport('worktree', result, options, target.root), context, format, rules);
+}
+
+// ----------------------------------------------------------------- check
+function checkCommand(context: GuardContext): GuardResult {
+  const format = resolveFormat(context.flags);
+  const options = resolveOptions(context, context.root, () => undefined);
+  const input = readCheckInput(context);
+  const findings = scanValue(input.value, options).filter((finding) => finding.baselined !== true);
+
+  const threshold = severityRank(options.failOn);
+  const code = findings.some((finding) => severityRank(finding.severity) >= threshold) ? 1 : 0;
+
+  if (format === 'json') {
+    return { code, stdout: renderCheckJson(input, findings), stderr: '' };
+  }
+  if (format !== 'text') {
+    throw new UsageError(`mint guard check supports --format text or json (got "${format}")`);
+  }
+  return { code, stdout: renderCheckText(input, findings, options, context), stderr: '' };
 }
 
 // ------------------------------------------------------------------- env
@@ -349,12 +521,13 @@ function envCommand(context: GuardContext): GuardResult {
 
 // -------------------------------------------------------------- baseline
 function baselineCommand(context: GuardContext): GuardResult {
-  const root = scanRoot(context);
-  const options = resolveOptions(context, root, () => undefined);
+  const target = scanTarget(context);
+  if (target.file !== undefined) throw new UsageError('baseline works on a directory, not a single file');
+  const options = resolveOptions(context, target.root, () => undefined);
   const existing = readBaseline(options.baselineFile);
   const salt = baselineSalt(existing);
   const started = startTimer();
-  const result = scanWorktree(context, options, { salt, baselineIds: new Set<string>() });
+  const result = scanWorktree(context, options, target, { salt, baselineIds: new Set<string>() });
   stopTimer(result.stats, started);
 
   const written = writeBaseline(options.baselineFile, salt, result.findings, existing);
@@ -448,22 +621,25 @@ function rulesCommand(context: GuardContext): GuardResult {
 export const GUARD_COMMANDS: readonly GuardCommand[] = [
   {
     name: 'scan',
-    summary: 'Find leaked secrets in the working tree, the git index or git history',
-    usage: 'scan [path] [--staged | --history [--since <rev>]] [--fail-on medium]',
+    summary: 'Find leaked secrets in the working tree, the git index, a diff or history',
+    usage: 'scan [path] [--staged | --history [--since <rev>] | --diff <rev>] [--fail-on medium]',
     details: [
+      'A path may be a directory or a single file. Git modes only report files under that path.',
       'Respects .gitignore, .mintguardignore and .mintguard.json; skips node_modules, .git,',
       'build output, lockfiles and binary files. Exit codes: 0 clean, 1 findings, 2 error.',
     ],
     examples: [
       'mint guard scan',
+      'mint guard scan src/config.ts',
       'mint guard scan --staged',
       'mint guard scan --history --since "2 weeks ago"',
+      'mint guard scan --diff origin/main',
       'mint guard scan --format sarif > mintguard.sarif',
-      'mint guard scan --fail-on high --fix',
     ],
     flags: [
       'staged',
       'history',
+      'diff',
       'since',
       'fail-on',
       'format',
@@ -480,6 +656,20 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'inline-comments',
     ],
     run: scanCommand,
+  },
+  {
+    name: 'check',
+    summary: 'Identify a single value: does it look like a secret, and what should I do?',
+    usage: 'check [value]  (or pipe the value on stdin)',
+    details: [
+      'Runs the same rules as scan against one string, so you can triage a value you',
+      'found in a log, a chat or a config file without scanning a whole project.',
+      'Prefer stdin: a value passed as an argument ends up in your shell history.',
+      'Exit codes: 0 not recognised, 1 findings at or above --fail-on, 2 error.',
+    ],
+    examples: ['mint guard check "sk_live_..."', 'pbpaste | mint guard check', 'mint guard check --json < token.txt'],
+    flags: ['fail-on', 'format', 'entropy-threshold', 'config', 'rules', 'quiet'],
+    run: checkCommand,
   },
   {
     name: 'env',

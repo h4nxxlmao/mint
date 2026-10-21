@@ -57,6 +57,16 @@ test('gitignore: nested ignore files are scoped to their directory', () => {
   assert.equal(set.ignores('other/secret.txt', false), false);
 });
 
+test('gitignore: ignoresPath covers files inside ignored directories', () => {
+  const set = ignoreSet(['test/', '/build', '*.log']);
+  assert.equal(set.ignoresPath('test/fixtures/leak.ts'), true);
+  assert.equal(set.ignoresPath('test/leak.ts'), true);
+  assert.equal(set.ignoresPath('src/test.ts'), false);
+  assert.equal(set.ignoresPath('build/out.js'), true);
+  assert.equal(set.ignoresPath('nested/build/out.js'), false, 'anchored pattern only matches the root');
+  assert.equal(set.ignoresPath('logs/app.log'), true);
+});
+
 test('gitignore: parseIgnoreLines splits CRLF and LF', () => {
   assert.deepEqual(parseIgnoreLines('a\r\nb\n'), ['a', 'b', '']);
 });

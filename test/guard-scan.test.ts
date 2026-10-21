@@ -112,6 +112,18 @@ test('entropy detection can be enabled and disabled', () => {
   assert.equal(withEntropy.findings[0].ruleId, 'entropy-string');
 });
 
+test('variable references and member access are not hard-coded credentials', () => {
+  const content = [
+    'const fields = { privateKey: privatePem, publicKey: publicPem };',
+    'const apiKey = config.apiKey;',
+    "password = 'hunter2hunter2';",
+  ].join('\n');
+  const outcome = scanContent(new Scanner(options()), content);
+  assert.equal(outcome.findings.length, 1, outcome.findings.map((finding) => finding.ruleId).join(', '));
+  assert.equal(outcome.findings[0].line, 3);
+  assert.equal(outcome.findings[0].ruleId, 'generic-assignment');
+});
+
 test('baseline matches are counted but not listed', () => {
   const content = `const token = 'ghp_${'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'}';`;
   const first = scanContent(new Scanner(options()), content);

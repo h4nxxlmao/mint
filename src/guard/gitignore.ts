@@ -155,6 +155,21 @@ export class IgnoreSet {
 
     return ignored;
   }
+
+  /**
+   * True when the file is ignored, either directly or because one of its parent
+   * directories is ignored (`test/` also covers `test/fixtures/leak.ts`).
+   *
+   * Used for git modes, where the walker never gets the chance to skip a directory.
+   */
+  ignoresPath(relativePath: string): boolean {
+    if (this.ignores(relativePath, false)) return true;
+    const parts = relativePath.split('/');
+    for (let index = 1; index < parts.length; index++) {
+      if (this.ignores(parts.slice(0, index).join('/'), true)) return true;
+    }
+    return false;
+  }
 }
 
 export function parseIgnoreLines(content: string): string[] {

@@ -7,6 +7,12 @@ import type { FlagSpec } from '../flags.js';
 export const GUARD_FLAGS: readonly FlagSpec[] = [
   { name: 'staged', type: 'boolean', description: 'Scan the git index instead of the working tree' },
   { name: 'history', type: 'boolean', description: 'Scan every commit and diff' },
+  {
+    name: 'diff',
+    type: 'string',
+    arg: '<rev>',
+    description: 'Scan only the lines this revision added relative to HEAD',
+  },
   { name: 'since', type: 'string', arg: '<rev|date>', description: 'Limit --history to a revision or a date' },
   {
     name: 'fail-on',

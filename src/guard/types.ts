@@ -44,7 +44,7 @@ export interface Rule {
   entropy?: boolean;
 }
 
-export type FindingSource = 'worktree' | 'staged' | 'history' | 'env';
+export type FindingSource = 'worktree' | 'staged' | 'history' | 'diff' | 'env' | 'check';
 
 export interface CommitInfo {
   hash: string;

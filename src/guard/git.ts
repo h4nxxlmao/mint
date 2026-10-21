@@ -104,6 +104,15 @@ export function resolveSince(root: string, value: string): string[] {
   throw new UsageError(`--since "${value}" is neither a revision nor a date`, 'try --since HEAD~20 or --since "2 weeks ago"');
 }
 
+/** Reject revisions that git would read as an option instead of a range. */
+export function assertRevision(value: string, flag: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.startsWith('-')) {
+    throw new UsageError(`${flag} needs a revision, not "${value}"`, `try ${flag} HEAD~1 or ${flag} origin/main`);
+  }
+  return trimmed;
+}
+
 export interface HistoryHandlers {
   /** Called once per added line, with the line number in the new file. */
   scanLine(line: string, lineNumber: number, file: string, commit: CommitInfo): void;
@@ -121,6 +130,15 @@ export interface HistorySummary {
   files: number;
 }
 
+export interface DiffHandlers {
+  scanLine(line: string, lineNumber: number, file: string): void;
+  onFile?: (file: string) => void;
+}
+
+export interface DiffSummary {
+  files: number;
+}
+
 const HUNK = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/u;
 
 function unquotePath(raw: string): string {
@@ -135,45 +153,29 @@ function unquotePath(raw: string): string {
   return path.startsWith('b/') ? path.slice(2) : path;
 }
 
-class HistoryParser {
-  private commit: CommitInfo = { hash: '', author: '', date: '' };
+/**
+ * Parses unified diffs (`--unified=0`) and reports every added line with its line
+ * number in the new file. Shared by `--history` and `--diff`.
+ */
+class HunkParser {
   private file: string | undefined;
   private lineNumber = 0;
   private inHunk = false;
   private skipFile = false;
-  commits = 0;
+  private readonly seen = new Set<string>();
   files = 0;
-  private seenFiles = new Set<string>();
 
-  constructor(private readonly handlers: HistoryHandlers, private readonly maxCommits?: number) {}
+  constructor(private readonly onLine: (line: string, lineNumber: number, file: string) => void) {}
 
-  private countFile(path: string): void {
-    const key = `${this.commit.hash}\u0000${path}`;
-    if (!this.seenFiles.has(key)) {
-      this.seenFiles.add(key);
-      this.files++;
-    }
+  reset(): void {
+    this.inHunk = false;
+    this.skipFile = false;
+    this.file = undefined;
   }
 
   handle(line: string): void {
-    if (line.startsWith('\u001e')) {
-      const [hash = '', author = '', date = ''] = line.slice(1).split('\u001f');
-      this.commit = { hash, author, date };
-      this.commits++;
-      this.inHunk = false;
-      this.skipFile = false;
-      this.file = undefined;
-      this.handlers.onCommit?.(this.commit);
-      return;
-    }
-    if (this.maxCommits !== undefined && this.commits > this.maxCommits) {
-      this.inHunk = false;
-      return;
-    }
     if (line.startsWith('diff --git ')) {
-      this.inHunk = false;
-      this.skipFile = false;
-      this.file = undefined;
+      this.reset();
       return;
     }
     if (line.startsWith('+++ ')) {
@@ -185,7 +187,10 @@ class HistoryParser {
       }
       this.file = unquotePath(rest);
       this.skipFile = false;
-      this.countFile(this.file);
+      if (!this.seen.has(this.file)) {
+        this.seen.add(this.file);
+        this.files++;
+      }
       return;
     }
     if (line.startsWith('@@')) {
@@ -202,7 +207,7 @@ class HistoryParser {
 
     if (line.startsWith('+')) {
       const file = this.file;
-      if (file !== undefined) this.handlers.scanLine(line.slice(1), this.lineNumber, file, this.commit);
+      if (file !== undefined) this.onLine(line.slice(1), this.lineNumber, file);
       this.lineNumber++;
       return;
     }
@@ -211,38 +216,19 @@ class HistoryParser {
   }
 }
 
-/**
- * Stream `git log -p` and hand every added line to the callback. Parsing is
- * incremental with a bounded buffer, so a huge repository does not have to fit in
- * memory.
- */
-export function streamHistory(
+/** Spawn a git command and hand every stdout line to `onLine` as it arrives. */
+function streamGit(
   root: string,
-  options: HistoryOptions,
-  handlers: HistoryHandlers,
-): Promise<HistorySummary> {
-  const args = [
-    '-C',
-    root,
-    'log',
-    '--all',
-    '--no-color',
-    '--date=short',
-    '--pretty=format:%x1e%H%x1f%an%x1f%ad',
-    '-p',
-    '--unified=0',
-  ];
-  if (options.sinceArgs !== undefined) args.push(...options.sinceArgs);
-  if (options.maxCommits !== undefined) args.push(`-n${String(options.maxCommits)}`);
-
-  return new Promise<HistorySummary>((resolve, reject) => {
-    const parser = new HistoryParser(handlers, options.maxCommits);
-    const child = spawn('git', args, { windowsHide: true });
+  args: readonly string[],
+  onLine: (line: string) => void,
+): Promise<{ code: number; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', root, ...args], { windowsHide: true });
     let stderr = '';
     let pending: Buffer = Buffer.alloc(0);
 
     child.on('error', (error) => {
-      reject(new RuntimeError(`could not run git log: ${error.message}`, error));
+      reject(new RuntimeError(`could not run git: ${error.message}`, error));
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
@@ -253,17 +239,65 @@ export function streamHistory(
       while (index !== -1) {
         const line = pending.subarray(0, index).toString('utf8').replace(/\r$/u, '');
         pending = pending.subarray(index + 1);
-        parser.handle(line);
+        onLine(line);
         index = pending.indexOf(0x0a);
       }
     });
     child.on('close', (code) => {
-      if (pending.length > 0) parser.handle(pending.toString('utf8').replace(/\r$/u, ''));
-      if (code === 0 || /does not have any commits yet/iu.test(stderr)) {
-        resolve({ commits: parser.commits, files: parser.files });
-        return;
-      }
-      reject(new RuntimeError(`git log failed (exit ${String(code)}): ${stderr.trim()}`));
+      if (pending.length > 0) onLine(pending.toString('utf8').replace(/\r$/u, ''));
+      resolve({ code: code ?? -1, stderr });
     });
   });
+}
+
+/**
+ * Stream `git log -p` and hand every added line to the callback. Parsing is
+ * incremental with a bounded buffer, so a huge repository does not have to fit in
+ * memory.
+ */
+export async function streamHistory(
+  root: string,
+  options: HistoryOptions,
+  handlers: HistoryHandlers,
+): Promise<HistorySummary> {
+  const args = ['log', '--all', '--no-color', '--date=short', '--pretty=format:%x1e%H%x1f%an%x1f%ad', '-p', '--unified=0'];
+  if (options.sinceArgs !== undefined) args.push(...options.sinceArgs);
+  if (options.maxCommits !== undefined) args.push(`-n${String(options.maxCommits)}`);
+
+  let commit: CommitInfo = { hash: '', author: '', date: '' };
+  let commits = 0;
+  const parser = new HunkParser((line, lineNumber, file) => handlers.scanLine(line, lineNumber, file, commit));
+
+  const result = await streamGit(root, args, (line) => {
+    if (line.startsWith('\u001e')) {
+      const [hash = '', author = '', date = ''] = line.slice(1).split('\u001f');
+      commit = { hash, author, date };
+      commits++;
+      parser.reset();
+      handlers.onCommit?.(commit);
+      return;
+    }
+    parser.handle(line);
+  });
+
+  if (result.code !== 0 && !/does not have any commits yet/iu.test(result.stderr)) {
+    throw new RuntimeError(`git log failed (exit ${String(result.code)}): ${result.stderr.trim()}`);
+  }
+  return { commits, files: parser.files };
+}
+
+/** Scan the lines `revision` added relative to HEAD (three-dot diff). */
+export async function streamDiff(root: string, revision: string, handlers: DiffHandlers): Promise<DiffSummary> {
+  const parser = new HunkParser(handlers.scanLine);
+  const result = await streamGit(
+    root,
+    ['diff', `${revision}...HEAD`, '--no-color', '--unified=0', '--diff-filter=ACMR'],
+    (line) => {
+      parser.handle(line);
+    },
+  );
+  if (result.code !== 0) {
+    throw new RuntimeError(`git diff failed (exit ${String(result.code)}): ${result.stderr.trim()}`);
+  }
+  return { files: parser.files };
 }

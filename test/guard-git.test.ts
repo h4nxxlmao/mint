@@ -163,6 +163,96 @@ test('scan --staged outside a git repository fails with exit 2', (context) => {
   assert.match(result.stderr, /not inside a git repository/u);
 });
 
+test('diff mode only reports lines the revision added', (context) => {
+  if (!gitAvailable()) {
+    context.skip('git is not available');
+    return;
+  }
+  const tree = makeTempTree();
+  context.after(() => tree.cleanup());
+  initRepo(tree);
+
+  tree.write('app.js', 'export const ok = 1;\n');
+  git(['add', '.'], tree.dir);
+  git(['commit', '-q', '-m', 'base'], tree.dir);
+
+  tree.write('app.js', `export const ok = 1;\nexport const token = '${GITHUB_TOKEN}';\n`);
+  tree.write('ignored/leak.js', `const key = '${STRIPE_KEY}';\n`);
+  tree.write('.mintguardignore', 'ignored/\n');
+  git(['add', '.'], tree.dir);
+  git(['commit', '-q', '-m', 'leak'], tree.dir);
+
+  const diff = runCli(['guard', 'scan', '--diff', 'HEAD~1', '--format', 'json'], tree.dir);
+  assert.equal(diff.status, 1, diff.stderr);
+  const parsed = JSON.parse(diff.stdout);
+  assert.equal(parsed.findings.length, 1, JSON.stringify(parsed.findings));
+  assert.equal(parsed.findings[0].file, 'app.js');
+  assert.equal(parsed.findings[0].line, 2);
+  assert.equal(parsed.findings[0].source, 'diff');
+  assert.ok(!diff.stdout.includes(GITHUB_TOKEN));
+
+  const empty = runCli(['guard', 'scan', '--diff', 'HEAD', '--format', 'json'], tree.dir);
+  assert.equal(empty.status, 0, empty.stdout);
+
+  const bad = runCli(['guard', 'scan', '--diff', '-x'], tree.dir);
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /needs a revision/u);
+});
+
+test('staged and history scans can be scoped to a directory', (context) => {
+  if (!gitAvailable()) {
+    context.skip('git is not available');
+    return;
+  }
+  const tree = makeTempTree();
+  context.after(() => tree.cleanup());
+  initRepo(tree);
+
+  tree.write('a/leak.js', `const token = '${GITHUB_TOKEN}';\n`);
+  tree.write('b/leak.js', `const key = '${STRIPE_KEY}';\n`);
+  git(['add', '.'], tree.dir);
+
+  const stagedA = JSON.parse(runCli(['guard', 'scan', '--staged', 'a', '--format', 'json'], tree.dir).stdout);
+  assert.equal(stagedA.findings.length, 1);
+  assert.equal(stagedA.findings[0].file, 'a/leak.js');
+
+  const stagedB = JSON.parse(runCli(['guard', 'scan', '--staged', 'b', '--format', 'json'], tree.dir).stdout);
+  assert.equal(stagedB.findings.length, 1);
+  assert.equal(stagedB.findings[0].file, 'b/leak.js');
+
+  git(['commit', '-q', '-m', 'both'], tree.dir);
+
+  const historyA = JSON.parse(runCli(['guard', 'scan', '--history', 'a', '--format', 'json'], tree.dir).stdout);
+  assert.equal(historyA.findings.length, 1);
+  assert.equal(historyA.findings[0].file, 'a/leak.js');
+});
+
+test('history and diff modes honour .mintguardignore directories', (context) => {
+  if (!gitAvailable()) {
+    context.skip('git is not available');
+    return;
+  }
+  const tree = makeTempTree();
+  context.after(() => tree.cleanup());
+  initRepo(tree);
+
+  tree.write('.mintguardignore', 'fixtures/\n');
+  tree.write('base.txt', 'base\n');
+  git(['add', '.'], tree.dir);
+  git(['commit', '-q', '-m', 'base'], tree.dir);
+
+  tree.write('src/app.js', `const token = '${GITHUB_TOKEN}';\n`);
+  tree.write('fixtures/sample.js', `const key = '${STRIPE_KEY}';\n`);
+  git(['add', '.'], tree.dir);
+  git(['commit', '-q', '-m', 'commit both'], tree.dir);
+
+  const history = JSON.parse(runCli(['guard', 'scan', '--history', '--format', 'json'], tree.dir).stdout);
+  assert.deepEqual(history.findings.map((finding: { file: string }) => finding.file), ['src/app.js']);
+
+  const diff = JSON.parse(runCli(['guard', 'scan', '--diff', 'HEAD~1', '--format', 'json'], tree.dir).stdout);
+  assert.deepEqual(diff.findings.map((finding: { file: string }) => finding.file), ['src/app.js']);
+});
+
 test('scan --history on an empty repository is clean', (context) => {
   if (!gitAvailable()) {
     context.skip('git is not available');

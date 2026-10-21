@@ -9,6 +9,8 @@ import type { Finding, Rule } from './types.js';
 
 /** `.env`, `.env.local`, `.env.production` - but not `.env.example`. */
 const ENV_FILE = /^\.env(?:\.[A-Za-z0-9_-]+)?$/u;
+/** direnv files often export the same secrets as .env and are just as easy to commit. */
+const EXTRA_ENV_FILES: readonly string[] = ['.envrc'];
 export const EXAMPLE_FILES: readonly string[] = ['.env.example', '.env.sample', '.env.template', '.env.dist', '.env.defaults'];
 const MAX_DEPTH = 8;
 
@@ -40,7 +42,7 @@ function collectEnvFiles(root: string): EnvFile[] {
         continue;
       }
       if (!entry.isFile()) continue;
-      if (ENV_FILE.test(entry.name) || EXAMPLE_FILES.includes(entry.name)) {
+      if (ENV_FILE.test(entry.name) || EXTRA_ENV_FILES.includes(entry.name) || EXAMPLE_FILES.includes(entry.name)) {
         found.push({ path: childRelative, absolute: join(absoluteDir, entry.name) });
       }
     }
@@ -153,12 +155,13 @@ export function runEnvChecks(options: EnvCheckOptions): EnvCheckOutcome {
 /** Used by tests and by `env` to check a single file's shape without walking. */
 export function envFileKind(name: string): 'env' | 'example' | 'other' {
   if (EXAMPLE_FILES.includes(name)) return 'example';
-  return ENV_FILE.test(name) ? 'env' : 'other';
+  return ENV_FILE.test(name) || EXTRA_ENV_FILES.includes(name) ? 'env' : 'other';
 }
 
 export function isEnvFile(path: string): boolean {
   const base = path.split(/[\\/]/u).pop() ?? '';
-  return ENV_FILE.test(base) && !EXAMPLE_FILES.includes(base);
+  if (EXAMPLE_FILES.includes(base)) return false;
+  return ENV_FILE.test(base) || EXTRA_ENV_FILES.includes(base);
 }
 
 /** Size guard shared with the walker. */

@@ -55,13 +55,16 @@ const SHAPES = {
   snowflake: /^\d{18,19}$/,
   typeid: /^user_[0-9a-hjkmnp-tv-z]{26}$/,
   'jwt-secret': /^[A-Za-z0-9_-]{43}$/,
+  'totp-secret': /^[A-Z2-7]{32}$/,
   apikey: /^sk_live_[A-Za-z0-9]{32}$/,
   token: /^[A-Za-z0-9_-]{43}$/,
   hmac: /^[0-9a-f]{64}$/,
   aes: /^[0-9a-f]{64}$/,
+  keypair: /^-----BEGIN PRIVATE KEY-----/, // mintguard:ignore private-key-block
   salt: /^[0-9a-f]{32}$/,
   session: /^[A-Za-z0-9_-]{43}$/,
   'webhook-secret': /^whsec_[A-Za-z0-9+/]{43}=$/,
+  mnemonic: /^(?:[a-z]+ ){11}[a-z]+$/,
   int: /^\d+$/,
   dice: /^\d{1,2}$/,
   coin: /^(heads|tails)$/,
@@ -104,6 +107,17 @@ const PER_GENERATOR_VALUES = {
   ksuid: { format: 'hex' },
   cuid: { length: '12', size: '12' },
   apikey: { length: '12', size: '12' },
+  keypair: { type: 'rsa' },
+  mnemonic: { words: '12' },
+};
+
+/**
+ * Flags that only make sense next to another flag; tested explicitly instead of
+ * in the one-flag-at-a-time sweep.
+ */
+const FLAG_SWEEP_SKIP = {
+  // --bits selects the RSA size, so it needs --type rsa; --public/--openssh are covered.
+  keypair: ['bits'],
 };
 
 /** Flags a generator consumes itself, so the global meaning does not apply. */
@@ -186,7 +200,7 @@ for (const generator of GENERATORS) {
       const negated = spelling.startsWith('--no-') ? `--${spec.name}` : `--no-${spec.name}`;
       expectOk(`mint ${generator.name} ${spelling}`, [...base, spelling]);
       expectOk(`mint ${generator.name} ${negated}`, [...base, negated]);
-    } else if (value !== undefined) {
+    } else if (value !== undefined && !(FLAG_SWEEP_SKIP[generator.name] ?? []).includes(flagName)) {
       expectOk(`mint ${generator.name} --${flagName} ${value}`, [...base, `--${flagName}`, value]);
     }
   }
@@ -222,7 +236,7 @@ for (const generator of GENERATORS) {
   checks++;
   check(
     `mint ${generator.name} --env SECRET`,
-    env.status === 0 && /^SECRET=.+/m.test(env.stdout),
+    env.status === 0 && /^SECRET(?:_\d+)?=.+/m.test(env.stdout),
     `exit ${env.status}, stdout ${JSON.stringify(env.stdout.slice(0, 60))}`,
   );
 
@@ -367,6 +381,10 @@ expectOk('mint chars --bits 256', ['chars', '--bits', '256']);
 expectOk('mint int --bits 128', ['int', '--bits', '128']);
 expectOk('mint 32 --count 3', ['32', '--count', '3']);
 expectOk('mint uuid --v7 --json --count 3', ['uuid', '--v7', '--json', '--count', '3']);
+expectOk('mint keypair --type rsa --bits 2048 --public', ['keypair', '--type', 'rsa', '--bits', '2048', '--public']);
+expectOk('mint keypair --openssh --comment me@host', ['keypair', '--openssh', '--comment', 'me@host']);
+expectOk('mint mnemonic --words 24', ['mnemonic', '--words', '24']);
+expectOk('mint mnemonic --bits 160', ['mnemonic', '--bits', '160']);
 
 // ------------------------------------------------------------------- guard
 const guardHelp = run(['guard']);
@@ -377,7 +395,7 @@ check(
   `exit ${guardHelp.status}`,
 );
 
-for (const command of ['scan', 'env', 'baseline', 'init', 'install-hook', 'uninstall-hook', 'rotate-help', 'rules']) {
+for (const command of ['scan', 'check', 'env', 'baseline', 'init', 'install-hook', 'uninstall-hook', 'rotate-help', 'rules']) {
   const help = run(['guard', command, '--help']);
   checks++;
   check(
@@ -397,13 +415,23 @@ try {
 }
 
 expectOk('mint guard rotate-help github-token', ['guard', 'rotate-help', 'github-token']);
+expectOk('mint guard check (clean value)', ['guard', 'check', 'nothing secret here']);
+expectFailure('mint guard check (stripe key) -> exit 1', ['guard', 'check', `sk_live_${'a1B2c3D4e5F6g7H8i9J0k1L2'}`], 1);
+const checkJson = run(['guard', 'check', `sk_live_${'a1B2c3D4e5F6g7H8i9J0k1L2'}`, '--json']);
+checks++;
+try {
+  const parsed = JSON.parse(checkJson.stdout);
+  check('mint guard check --json', checkJson.status === 1 && parsed.detected === true && parsed.findings.length === 1, 'unexpected payload');
+} catch (error) {
+  check('mint guard check --json', false, `not JSON: ${String(error)}`);
+}
 expectOk('mint guard scan (this repository is clean)', ['guard', 'scan', '--fail-on', 'high']);
 expectFailure('error: mint guard nope -> exit 2', ['guard', 'nope'], 2);
 expectFailure('error: mint guard scan --count 3 -> exit 2', ['guard', 'scan', '--count', '3'], 2);
 expectFailure('error: mint guard scan --fail-on nope -> exit 2', ['guard', 'scan', '--fail-on', 'nope'], 2);
 
 // distinct values across runs (only for generators with plenty of entropy)
-const uniqueness = ['bytes', 'uuid', 'ulid', 'ksuid', 'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'aes', 'token', 'session', 'apikey', 'jwt-secret', 'passphrase', 'password', 'salt', 'hmac', 'typeid', 'webhook-secret', 'base58', 'mac', 'ipv6'];
+const uniqueness = ['bytes', 'uuid', 'ulid', 'ksuid', 'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'aes', 'token', 'session', 'apikey', 'jwt-secret', 'totp-secret', 'mnemonic', 'passphrase', 'password', 'salt', 'hmac', 'typeid', 'webhook-secret', 'base58', 'mac', 'ipv6'];
 for (const name of uniqueness) {
   const seen = new Set();
   for (let index = 0; index < 25; index++) {
