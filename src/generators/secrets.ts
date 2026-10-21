@@ -78,6 +78,20 @@ function byteSecret(context: GenContext, options: { defaultBytes: number; format
 
 const BYTE_SECRET_FLAGS = ['length', 'size', 'bytes', 'bits', 'format', 'upper'] as const;
 
+export const totpSecretGenerator: Generator = {
+  name: 'totp-secret',
+  summary: 'TOTP/HOTP shared secret (base32, RFC 4226)',
+  usage: 'totp-secret [--bytes 20] [--format base32|hex|base64]',
+  details: [
+    'RFC 4226 recommends at least 128 bits for an HOTP/TOTP shared secret; the default',
+    'is 160 bits (20 bytes), the size most authenticator apps expect.',
+    'Base32 output is uppercase and unpadded, ready to paste into an app or otpauth URI.',
+  ],
+  examples: ['mint totp-secret', 'mint totp-secret --bytes 32', 'mint totp-secret --format hex'],
+  flags: BYTE_SECRET_FLAGS,
+  run: (context) => byteSecret(context, { defaultBytes: 20, format: 'base32' }),
+};
+
 export const jwtSecretGenerator: Generator = {
   name: 'jwt-secret',
   summary: 'JWT signing secret sized for HS256/HS384/HS512',

@@ -113,6 +113,8 @@ export const EXTRA_FLAGS: readonly FlagSpec[] = [
   spec({ name: 'algo', type: 'string', arg: '<name>', description: 'Algorithm (sha256, sha384, sha512)' }),
   spec({ name: 'iv', type: 'boolean', description: 'Also generate an IV' }),
   spec({ name: 'checksum', type: 'boolean', description: 'Append a short validation checksum' }),
+  spec({ name: 'openssh', type: 'boolean', description: 'Output an ssh-ed25519 public key line' }),
+  spec({ name: 'comment', type: 'string', arg: '<str>', description: 'Comment for the OpenSSH public key', default: 'mint' }),
 
   // misc
   spec({ name: 'min', type: 'int', arg: '<n>', description: 'Minimum value (inclusive)' }),

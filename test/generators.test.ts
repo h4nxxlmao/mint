@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { UsageError } from '../src/errors.js';
+import { entropyToMnemonic, mnemonicToEntropy } from '../src/generators/mnemonic.js';
 import { mint, mintValue, type MintOptions } from '../src/index.js';
 import { WORDLIST } from '../src/wordlist.js';
 
@@ -450,11 +451,91 @@ test('k and m size suffixes are accepted', () => {
   assert.equal(value('hex', { length: '1k' }).length, 1024);
 });
 
+test('totp-secret generator', () => {
+  assertMatch(value('totp-secret'), /^[A-Z2-7]{32}$/);
+  assertMatch(value('totp-secret', { bytes: 32 }), /^[A-Z2-7]{52}$/);
+  assertMatch(value('totp-secret', { format: 'hex' }), /^[0-9a-f]{40}$/);
+  assertMatch(value('totp-secret', { format: 'base64' }), /^[A-Za-z0-9+/]{27}=$/);
+  assert.equal(mint('totp-secret').entropyBits, 160);
+  assertAllDistinct(values('totp-secret', {}, 100));
+});
+
+test('keypair generator produces PEM and both keys in json', () => {
+  const privatePem = value('keypair');
+  assert.match(privatePem, /^-----BEGIN PRIVATE KEY-----/u);
+  assert.match(privatePem, /-----END PRIVATE KEY-----/u);
+
+  const publicPem = value('keypair', { public: true });
+  assert.match(publicPem, /^-----BEGIN PUBLIC KEY-----/u);
+
+  const parsed = mint('keypair');
+  assert.equal(parsed.entropyBits, 256);
+  assert.match(String(parsed.fields?.publicKey), /^-----BEGIN PUBLIC KEY-----/u);
+  assert.match(String(parsed.fields?.privateKey), /^-----BEGIN PRIVATE KEY-----/u);
+  assertAllDistinct(values('keypair', { public: true }, 20));
+});
+
+test('keypair ssh output is a well formed ed25519 blob', () => {
+  const line = value('keypair', { openssh: true, comment: 'me@host' });
+  const parts = line.split(' ');
+  assert.equal(parts.length, 3);
+  assert.equal(parts[0], 'ssh-ed25519');
+  assert.equal(parts[2], 'me@host');
+  const blob = Buffer.from(parts[1], 'base64');
+  const typeLength = blob.readUInt32BE(0);
+  assert.equal(blob.subarray(4, 4 + typeLength).toString('utf8'), 'ssh-ed25519');
+  const keyLength = blob.readUInt32BE(4 + typeLength);
+  assert.equal(keyLength, 32);
+  assert.equal(blob.length, 4 + typeLength + 4 + keyLength);
+});
+
+test('keypair supports rsa and validates its options', () => {
+  const rsa = value('keypair', { type: 'rsa', bits: 2048, public: true });
+  assert.match(rsa, /^-----BEGIN PUBLIC KEY-----/u);
+  assert.equal(mint('keypair', { type: 'rsa', bits: 2048 }).entropyBits, 2048);
+  assert.throws(() => value('keypair', { type: 'rsa', bits: 1024 }), UsageError);
+  assert.throws(() => value('keypair', { type: 'rsa', bits: 5000 }), UsageError);
+  assert.throws(() => value('keypair', { bits: 4096 }), UsageError);
+  assert.throws(() => value('keypair', { type: 'rsa', openssh: true }), UsageError);
+  assert.throws(() => value('keypair', { type: 'dsa' }), UsageError);
+});
+
+test('mnemonic generator produces valid BIP-39 phrases', () => {
+  const phrase = value('mnemonic');
+  assert.equal(phrase.split(' ').length, 12);
+  assert.equal(mnemonicToEntropy(phrase).length, 16);
+
+  assert.equal(value('mnemonic', { words: 24 }).split(' ').length, 24);
+  assert.equal(value('mnemonic', { bits: 160 }).split(' ').length, 15);
+  assert.equal(value('mnemonic', { words: 12, separator: '-' }).split('-').length, 12);
+  assert.equal(mint('mnemonic').entropyBits, 128);
+  assert.equal(mint('mnemonic', { words: 24 }).entropyBits, 256);
+
+  for (const words of [12, 15, 18, 21, 24]) {
+    const expectedBytes = (words * 11 * 32) / 33 / 8;
+    assert.equal(mnemonicToEntropy(value('mnemonic', { words })).length, expectedBytes);
+  }
+
+  assert.throws(() => value('mnemonic', { words: 13 }), UsageError);
+  assert.throws(() => value('mnemonic', { bits: 512 }), UsageError);
+  assert.throws(() => value('mnemonic', { words: 12, bits: 128 }), UsageError);
+});
+
+test('the canonical BIP-39 vector and checksum validation', () => {
+  const phrase = entropyToMnemonic(Buffer.alloc(16));
+  assert.equal(phrase, 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+  assert.deepEqual(mnemonicToEntropy(phrase), Buffer.alloc(16));
+  // Swapping a word must break the checksum.
+  const broken = phrase.replace(/about$/u, 'abandon');
+  assert.throws(() => mnemonicToEntropy(broken), UsageError);
+});
+
 test('entropy metadata is present for every generator', () => {
   const commands = [
-    'bytes', 'hex', 'chars', 'password', 'passphrase', 'pin', 'uuid', 'ulid', 'ksuid', 'nanoid', 'cuid',
-    'uid', 'objectid', 'snowflake', 'typeid', 'jwt-secret', 'apikey', 'token', 'hmac', 'aes', 'salt',
-    'session', 'webhook-secret', 'color', 'mac', 'ipv4', 'ipv6', 'port', 'int', 'dice', 'coin',
+    'bytes', 'hex', 'chars', 'password', 'passphrase', 'mnemonic', 'pin', 'uuid', 'ulid', 'ksuid',
+    'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'typeid', 'jwt-secret', 'totp-secret', 'apikey',
+    'token', 'hmac', 'aes', 'keypair', 'salt', 'session', 'webhook-secret', 'color', 'mac', 'ipv4',
+    'ipv6', 'port', 'int', 'dice', 'coin',
   ];
   for (const command of commands) {
     const result = mint(command);

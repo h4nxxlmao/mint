@@ -1,5 +1,7 @@
 import { assertKnownFlags } from './specs.js';
 import { charsGenerator, passwordGenerator, pinGenerator } from './generators/chars.js';
+import { keypairGenerator } from './generators/keypair.js';
+import { mnemonicGenerator } from './generators/mnemonic.js';
 import { passphraseGenerator } from './generators/passphrase.js';
 import { rawGenerators } from './generators/raw.js';
 import {
@@ -21,6 +23,7 @@ import {
   saltGenerator,
   sessionGenerator,
   tokenGenerator,
+  totpSecretGenerator,
   webhookSecretGenerator,
 } from './generators/secrets.js';
 import {
@@ -44,7 +47,7 @@ export interface Category {
 
 export const CATEGORIES: readonly Category[] = [
   { title: 'raw bytes & encodings', generators: rawGenerators },
-  { title: 'characters', generators: [charsGenerator, passwordGenerator, passphraseGenerator, pinGenerator] },
+  { title: 'characters', generators: [charsGenerator, passwordGenerator, passphraseGenerator, mnemonicGenerator, pinGenerator] },
   {
     title: 'identifiers',
     generators: [
@@ -63,10 +66,12 @@ export const CATEGORIES: readonly Category[] = [
     title: 'developer secrets',
     generators: [
       jwtSecretGenerator,
+      totpSecretGenerator,
       apikeyGenerator,
       tokenGenerator,
       hmacGenerator,
       aesGenerator,
+      keypairGenerator,
       saltGenerator,
       sessionGenerator,
       webhookSecretGenerator,
