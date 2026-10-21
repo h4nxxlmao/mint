@@ -23,10 +23,26 @@ export function formatBits(bits: number): string {
   return bits.toFixed(1);
 }
 
-function decorate(result: GenResult, options: OutputOptions): string {
+function decorateLine(line: string, result: GenResult, options: OutputOptions): string {
   const consumesPrefix = result.fields !== undefined && 'prefix' in result.fields;
   const head = consumesPrefix ? '' : (options.prefix ?? '');
-  return `${head}${result.value}${options.suffix ?? ''}`;
+  return `${head}${line}${options.suffix ?? ''}`;
+}
+
+/**
+ * Values that span several lines (pick/shuffle) are decorated line by line, so
+ * `--env`, `--prefix` and `--suffix` apply to every generated value instead of
+ * only the first/last one.
+ */
+function decorate(results: readonly GenResult[], options: OutputOptions): { values: string[]; lines: string[] } {
+  const values: string[] = [];
+  const lines: string[] = [];
+  for (const result of results) {
+    const decorated = result.value.split('\n').map((line) => decorateLine(line, result, options));
+    values.push(decorated.join('\n'));
+    lines.push(...decorated);
+  }
+  return { values, lines };
 }
 
 function entropyLine(results: GenResult[]): string | undefined {
@@ -40,7 +56,7 @@ function entropyLine(results: GenResult[]): string | undefined {
 }
 
 export function render(results: GenResult[], options: OutputOptions): RenderedOutput {
-  const values = results.map((result) => decorate(result, options));
+  const { values, lines } = decorate(results, options);
   const stderr: string[] = [];
 
   let body: string;
@@ -54,14 +70,19 @@ export function render(results: GenResult[], options: OutputOptions): RenderedOu
     body = JSON.stringify(results.length === 1 ? payload[0] : payload, null, 2);
   } else if (options.env) {
     const name = options.env;
-    body = values
-      .map((value, index) => (values.length === 1 ? `${name}=${value}` : `${name}_${index + 1}=${value}`))
+    body = lines
+      .map((line, index) => (lines.length === 1 ? `${name}=${line}` : `${name}_${String(index + 1)}=${line}`))
       .join('\n');
   } else {
-    body = values.join('\n');
+    body = lines.join('\n');
   }
 
-  if (options.newline && !body.endsWith('\n')) body += '\n';
+  if (options.newline) {
+    if (!body.endsWith('\n')) body += '\n';
+  } else {
+    // Multi-line values (PEM keys) carry their own trailing newline.
+    body = body.replace(/\n+$/u, '');
+  }
 
   if (options.entropy) {
     const line = entropyLine(results);

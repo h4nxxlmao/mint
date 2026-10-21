@@ -103,15 +103,19 @@ function resolveCommand(command: string, positionals: string[]): Resolution {
   if (direct) return { generator: direct, args: positionals, shorthandSize: undefined };
 
   if (SIZE_PREFIX.test(command)) {
+    let size: number;
     try {
-      const size = parseSize(command, 'the shorthand size');
-      return { generator: findGenerator('bytes')!, args: positionals, shorthandSize: size };
-    } catch {
+      size = parseSize(command, 'the shorthand size');
+    } catch (error) {
+      // A numeric size that is out of range has a specific, useful message
+      // ("must be at least 1", "unknown size suffix", ...); keep it.
+      if (/^\d+$/u.test(command) && error instanceof UsageError) throw error;
       throw new UsageError(
         `"${command}" does not look like a size`,
         `try mint 32, mint 128 or "mint dice ${command}"`,
       );
     }
+    return { generator: findGenerator('bytes')!, args: positionals, shorthandSize: size };
   }
   throw unknownCommand(command);
 }

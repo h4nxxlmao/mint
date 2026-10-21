@@ -163,6 +163,28 @@ test('colors are off when the output is not a terminal', () => {
   assert.doesNotMatch(run(['uuid', 'oops']).stderr, /\u001b\[/u);
 });
 
+test('multi-line values are decorated line by line', () => {
+  const env = run(['pick', 'a', 'b', 'c', '--count', '2', '--env', 'CHOICE']).stdout.trim().split('\n');
+  assert.equal(env.length, 2);
+  assert.match(env[0], /^CHOICE_1=[abc]$/u);
+  assert.match(env[1], /^CHOICE_2=[abc]$/u);
+
+  const suffixed = run(['shuffle', 'a', 'b', 'c', '--suffix', '!']).stdout.trim().split('\n');
+  assert.equal(suffixed.length, 3);
+  for (const line of suffixed) assert.match(line, /^[abc]!$/u);
+
+  const prefixed = run(['shuffle', 'a', 'b', '--prefix', '>']).stdout.trim().split('\n');
+  assert.equal(prefixed.length, 2);
+  for (const line of prefixed) assert.match(line, /^>[ab]$/u);
+});
+
+test('a numeric shorthand that is out of range is explained', () => {
+  const zero = run(['0']);
+  assert.equal(zero.status, 2);
+  assert.match(zero.stderr, /at least 1/u);
+  assert.doesNotMatch(zero.stderr, /does not look like a size/u);
+});
+
 test('NO_COLOR disables colors even on a forced color terminal', () => {
   const { stdout } = run(['--help'], { FORCE_COLOR: '1', NO_COLOR: '1' });
   assert.doesNotMatch(stdout, /\u001b\[/u);
