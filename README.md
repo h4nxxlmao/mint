@@ -336,8 +336,8 @@ and lets the commit through, so tooling never blocks you by accident.
 ### GitHub Actions
 
 Copy [`.github/workflows/mintguard.yml`](./.github/workflows/mintguard.yml) — it runs
-`npx @xnah/mint guard scan --fail-on high --format sarif` and uploads the
-result to GitHub code scanning:
+`mint guard scan --fail-on high --format sarif` and uploads the result to GitHub code
+scanning:
 
 ```yaml
 permissions:
@@ -349,7 +349,8 @@ steps:
   - uses: actions/setup-node@v4
     with:
       node-version: 22
-  - run: npx @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
+  - run: npm install --no-save --no-package-lock --omit=dev @xnah/mint
+  - run: ./node_modules/.bin/mint guard scan --fail-on high --format sarif > mintguard.sarif
   - uses: github/codeql-action/upload-sarif@v3
     if: always()
     with:

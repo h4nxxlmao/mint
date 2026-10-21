@@ -21,8 +21,12 @@ jobs:
         with:
           node-version: 22
 
+      # Installing explicitly is more predictable than npx resolution in CI.
+      - name: Install mint
+        run: npm install --no-save --no-package-lock --omit=dev @xnah/mint
+
       - name: mint guard scan
-        run: npx --yes @xnah/mint guard scan --fail-on high --format sarif > mintguard.sarif
+        run: ./node_modules/.bin/mint guard scan --fail-on high --format sarif > mintguard.sarif
 
       - name: Upload SARIF to GitHub code scanning
         if: always()

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -389,7 +389,9 @@ test('a pre-commit hook blocks a commit containing a secret', (context) => {
   const shimDir = tree.mkdir('shim');
   const nodePath = process.execPath.replace(/\\/gu, '/');
   const cli = cliPath().replace(/\\/gu, '/');
-  writeFileSync(join(shimDir, 'mint'), `#!/bin/sh\nexec "${nodePath}" "${cli}" "$@"\n`);
+  const shimPath = join(shimDir, 'mint');
+  writeFileSync(shimPath, `#!/bin/sh\nexec "${nodePath}" "${cli}" "$@"\n`);
+  chmodSync(shimPath, 0o755);
 
   tree.write('leak.js', `const token = '${GITHUB_TOKEN}';\n`);
   git(['add', '.']);
