@@ -1,4 +1,5 @@
 import type { Palette } from './colors.js';
+import { TOOLS, type ToolCommand } from './catalog.js';
 import type { FlagSpec } from './flags.js';
 import { GLOBAL_FLAGS, SIZE_FLAGS, specFor } from './specs.js';
 import { CATEGORIES, GENERATORS } from './registry.js';
@@ -50,6 +51,13 @@ export function renderMainHelp(palette: Palette): string {
   lines.push(palette.bold('protect'));
   lines.push(`  ${palette.green('guard'.padEnd(width))}${'Find leaked secrets and risky files in a project'}`);
   lines.push(`  ${' '.repeat(width)}${palette.dim('mint guard scan --staged')}`);
+  lines.push('');
+
+  lines.push(palette.bold('tools'));
+  for (const tool of TOOLS) {
+    lines.push(`  ${palette.green(tool.name.padEnd(width))}${tool.summary}`);
+    lines.push(`  ${' '.repeat(width)}${palette.dim(tool.examples[0] ?? `mint ${tool.name}`)}`);
+  }
   lines.push('');
 
   lines.push(palette.bold('common options'));
@@ -112,4 +120,20 @@ export function renderCommandHelp(generator: Generator, palette: Palette, invoke
 
 function isGlobal(name: string): boolean {
   return GLOBAL_FLAGS.some((spec) => spec.name === name);
+}
+
+export function renderToolHelp(tool: ToolCommand, palette: Palette): string {
+  const lines: string[] = [];
+  lines.push(`${palette.bold(`mint ${tool.usage}`)}`);
+  lines.push(`  ${tool.summary}`);
+  lines.push('');
+  if (tool.details && tool.details.length > 0) {
+    for (const detail of tool.details) lines.push(`  ${detail}`);
+    lines.push('');
+  }
+  lines.push(palette.bold('examples'));
+  for (const example of tool.examples) lines.push(`  ${palette.green(example)}`);
+  lines.push('');
+  lines.push(`${palette.dim('mint --help')} ${palette.dim('lists every generator.')}`);
+  return `${lines.join('\n')}\n`;
 }

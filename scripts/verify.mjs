@@ -65,6 +65,9 @@ const SHAPES = {
   session: /^[A-Za-z0-9_-]{43}$/,
   'webhook-secret': /^whsec_[A-Za-z0-9+/]{43}=$/,
   mnemonic: /^(?:[a-z]+ ){11}[a-z]+$/,
+  alias: /^[a-z]+(?:-[a-z]+)+-\d{2}$/,
+  license: /^[0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/,
+  nonce: /^[A-Za-z0-9_-]{16}$/,
   int: /^\d+$/,
   dice: /^\d{1,2}$/,
   coin: /^(heads|tails)$/,
@@ -118,6 +121,8 @@ const PER_GENERATOR_VALUES = {
 const FLAG_SWEEP_SKIP = {
   // --bits selects the RSA size, so it needs --type rsa; --public/--openssh are covered.
   keypair: ['bits'],
+  // Name-based UUIDs need --name next to --v3/--v5; tested explicitly below.
+  uuid: ['v3', 'v5', 'name', 'namespace'],
 };
 
 /** Flags a generator consumes itself, so the global meaning does not apply. */
@@ -163,6 +168,15 @@ function expectFailure(label, commandArgs, status) {
   return check(label, result.status === status, `expected exit ${status}, got ${result.status} (stderr: ${result.stderr.trim()})`);
 }
 
+/** Same invocation as run(), but keeps stdout as raw bytes. */
+function runRaw(commandArgs) {
+  const result = spawnSync(EXECUTABLE, [...EXECUTABLE_PREFIX, ...CLI, ...commandArgs], {
+    windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return { status: result.status ?? -1, stdout: result.stdout ?? Buffer.alloc(0) };
+}
+
 const generatorArgs = (generator) => POSITIONALS[generator.name] ?? [];
 
 // ---------------------------------------------------------------- generators
@@ -193,14 +207,16 @@ for (const generator of GENERATORS) {
   for (const flagName of generator.flags ?? []) {
     const spec = specFor(flagName);
     if (!spec || flagName === 'quiet') continue;
+    const skip = FLAG_SWEEP_SKIP[generator.name] ?? [];
     const value = { ...VALUES, ...(PER_GENERATOR_VALUES[generator.name] ?? {}) }[flagName];
 
     if (spec.type === 'boolean') {
+      if (skip.includes(flagName)) continue;
       const spelling = spec.shownAs ?? `--${spec.name}`;
       const negated = spelling.startsWith('--no-') ? `--${spec.name}` : `--no-${spec.name}`;
       expectOk(`mint ${generator.name} ${spelling}`, [...base, spelling]);
       expectOk(`mint ${generator.name} ${negated}`, [...base, negated]);
-    } else if (value !== undefined && !(FLAG_SWEEP_SKIP[generator.name] ?? []).includes(flagName)) {
+    } else if (value !== undefined && !skip.includes(flagName)) {
       expectOk(`mint ${generator.name} --${flagName} ${value}`, [...base, `--${flagName}`, value]);
     }
   }
@@ -385,6 +401,52 @@ expectOk('mint keypair --type rsa --bits 2048 --public', ['keypair', '--type', '
 expectOk('mint keypair --openssh --comment me@host', ['keypair', '--openssh', '--comment', 'me@host']);
 expectOk('mint mnemonic --words 24', ['mnemonic', '--words', '24']);
 expectOk('mint mnemonic --bits 160', ['mnemonic', '--bits', '160']);
+expectOk('mint uuid --v5 --name example.com', ['uuid', '--v5', '--name', 'example.com']);
+expectOk('mint uuid --v3 --name example.com', ['uuid', '--v3', '--name', 'example.com']);
+expectOk('mint alias --words 3', ['alias', '--words', '3']);
+expectOk('mint license --groups 5', ['license', '--groups', '5']);
+
+const v5 = run(['uuid', '--v5', '--name', 'example.com']);
+checks++;
+check(
+  'mint uuid --v5 matches the RFC vector',
+  v5.status === 0 && v5.stdout.trim() === 'cfbff0d1-9375-5685-968c-48ce8b15ae17',
+  `got ${v5.stdout.trim()}`,
+);
+
+const raw32 = runRaw(['32', '--raw']);
+checks++;
+check('mint 32 --raw writes 32 bytes', raw32.status === 0 && raw32.stdout.length === 32, `got ${raw32.stdout.length} bytes`);
+
+const catalogRun = run(['list', '--json']);
+checks++;
+try {
+  const parsed = JSON.parse(catalogRun.stdout);
+  check(
+    'mint list --json',
+    catalogRun.status === 0 && parsed.generators.length >= 40 && parsed.guard.length >= 9 && parsed.tools.length === 3,
+    'unexpected payload',
+  );
+} catch (error) {
+  check('mint list --json', false, `not JSON: ${String(error)}`);
+}
+
+const completionsRun = run(['completions', 'bash']);
+checks++;
+check(
+  'mint completions bash',
+  completionsRun.status === 0 && completionsRun.stdout.includes('complete -F _mint_complete mint'),
+  `exit ${completionsRun.status}`,
+);
+
+const doctorRun = run(['doctor', '--json']);
+checks++;
+try {
+  const parsed = JSON.parse(doctorRun.stdout);
+  check('mint doctor --json', doctorRun.status === 0 && parsed.ok === true && Array.isArray(parsed.checks), 'unexpected payload');
+} catch (error) {
+  check('mint doctor --json', false, `not JSON: ${String(error)}`);
+}
 
 // ------------------------------------------------------------------- guard
 const guardHelp = run(['guard']);

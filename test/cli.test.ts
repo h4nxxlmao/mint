@@ -185,6 +185,84 @@ test('a numeric shorthand that is out of range is explained', () => {
   assert.doesNotMatch(zero.stderr, /does not look like a size/u);
 });
 
+test('list prints the catalog as text and json', () => {
+  const text = run(['list']);
+  assert.equal(text.status, 0);
+  assert.match(text.stdout, /uuid/u);
+  assert.match(text.stdout, /guard/u);
+  assert.match(text.stdout, /completions/u);
+
+  const catalog = JSON.parse(run(['list', '--json']).stdout);
+  assert.ok(catalog.generators.length >= 40, `only ${catalog.generators.length} generators`);
+  assert.ok(catalog.guard.length >= 9);
+  assert.equal(catalog.tools.length, 3);
+  assert.ok(catalog.generators.every((entry: { name: string; summary: string }) => entry.name && entry.summary));
+  assert.equal(run(['list', '--format', 'nope']).status, 2);
+});
+
+test('completions cover every supported shell', () => {
+  for (const shell of ['bash', 'zsh', 'fish', 'powershell']) {
+    const result = run(['completions', shell]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /uuid/u);
+    assert.match(result.stdout, /guard/u);
+    assert.match(result.stdout, /rotate-help/u);
+  }
+  assert.equal(run(['completions']).status, 2);
+  const unknown = run(['completions', 'tcsh']);
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown shell/u);
+});
+
+test('doctor reports the environment', () => {
+  const text = run(['doctor']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /csprng/u);
+  assert.match(text.stdout, /node/u);
+  assert.match(text.stdout, /everything mint needs is available|required check/u);
+
+  const json = JSON.parse(run(['doctor', '--json']).stdout);
+  assert.equal(json.ok, true);
+  assert.ok(json.checks.some((check: { name: string; status: string }) => check.name === 'csprng' && check.status === 'ok'));
+  assert.ok(json.checks.some((check: { name: string }) => check.name === 'git'));
+});
+
+test('help works for the tool commands', () => {
+  const help = run(['help', 'list']);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /mint list/u);
+  assert.match(help.stdout, /--json/u);
+  assert.match(run(['help', 'completions']).stdout, /bash/u);
+  assert.match(run(['help', 'doctor']).stdout, /CSPRNG/u);
+});
+
+test('--raw writes the bytes themselves', () => {
+  const raw = spawnSync(process.execPath, [CLI, '32', '--raw'], {
+    env: { ...process.env, NO_COLOR: '1' },
+    windowsHide: true,
+  });
+  assert.equal(raw.status, 0);
+  assert.equal(raw.stdout.length, 32);
+
+  const sixteen = spawnSync(process.execPath, [CLI, '16', '--raw'], { windowsHide: true });
+  assert.equal(sixteen.stdout.length, 16);
+  assert.notEqual(raw.stdout.toString('hex'), sixteen.stdout.toString('hex'));
+
+  const withEntropy = spawnSync(process.execPath, [CLI, '8', '--raw', '--entropy'], { windowsHide: true });
+  assert.equal(withEntropy.stdout.length, 8);
+  assert.match(String(withEntropy.stderr), /entropy: 64 bits/u);
+
+  const conflict = run(['32', '--raw', '--json']);
+  assert.equal(conflict.status, 2);
+  assert.match(conflict.stderr, /--raw cannot be combined with --json/u);
+});
+
+test('--raw rejects character-sized output', () => {
+  const result = run(['hex', '--length', '16', '--raw']);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /byte-based size/u);
+});
+
 test('NO_COLOR disables colors even on a forced color terminal', () => {
   const { stdout } = run(['--help'], { FORCE_COLOR: '1', NO_COLOR: '1' });
   assert.doesNotMatch(stdout, /\u001b\[/u);

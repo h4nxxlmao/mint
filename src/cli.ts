@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 import { buildAliasMap, parseArgs } from './args.js';
+import { findTool, renderCatalog, resolveToolFormat } from './catalog.js';
 import { paletteFor, type Palette } from './colors.js';
+import { renderCompletions, resolveShell } from './completions.js';
 import { dispatch } from './dispatch.js';
+import { renderDoctor, runDoctor } from './doctor.js';
 import { MintError, UsageError } from './errors.js';
 import { runGuard, type GuardIo, type GuardResult } from './guard/index.js';
-import { renderCommandHelp, renderMainHelp } from './help.js';
+import { renderCommandHelp, renderMainHelp, renderToolHelp } from './help.js';
 import { render } from './output.js';
 import { findGenerator, GENERATORS } from './registry.js';
 import { buildSpecMap } from './specs.js';
 import { parseSize, suggest } from './flags.js';
 import { VERSION } from './version.js';
 import type { Flags } from './flags.js';
-import type { Generator } from './types.js';
+import type { GenResult, Generator } from './types.js';
 
 const SPECS = buildSpecMap();
 const ALIASES = buildAliasMap(SPECS);
@@ -25,6 +28,33 @@ function write(stream: NodeJS.WriteStream, text: string): void {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error;
   }
+}
+
+function writeBuffer(stream: NodeJS.WriteStream, buffer: Buffer): void {
+  try {
+    stream.write(buffer);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error;
+  }
+}
+
+/** `--raw`: write the CSPRNG bytes themselves, so `mint 32 --raw > key.bin` works. */
+function writeRawResults(results: readonly GenResult[], flags: Flags): number {
+  const conflict = ['json', 'env', 'prefix', 'suffix', 'copy'].find((name) => flags.has(name));
+  if (conflict !== undefined) {
+    throw new UsageError(`--raw cannot be combined with --${conflict}`, 'raw output is meant to be piped into a file');
+  }
+  for (const result of results) {
+    if (result.raw === undefined) {
+      throw new UsageError('--raw needs a byte-based size', 'use --bytes or --bits instead of --length');
+    }
+  }
+  for (const result of results) writeBuffer(process.stdout, result.raw!);
+  if (flags.getBool('entropy')) {
+    const bits = results.reduce((sum, result) => sum + (result.entropyBits ?? 0), 0);
+    write(process.stderr, `entropy: ${String(bits)} bits\n`);
+  }
+  return 0;
 }
 
 function fail(error: MintError, palette: Palette): number {
@@ -141,6 +171,11 @@ function main(argv: readonly string[]): number {
       write(process.stdout, guardHelpText(flags, stdoutPalette));
       return 0;
     }
+    const tool = findTool(target);
+    if (tool) {
+      write(process.stdout, renderToolHelp(tool, stdoutPalette));
+      return 0;
+    }
     const generator = findGenerator(target);
     if (!generator) throw unknownCommand(target);
     write(process.stdout, renderCommandHelp(generator, stdoutPalette, target));
@@ -159,6 +194,22 @@ function main(argv: readonly string[]): number {
       if (error instanceof MintError) return failGuard(error, stderrPalette);
       throw error;
     }
+  }
+
+  if (parsed.command === 'list') {
+    write(process.stdout, renderCatalog(resolveToolFormat(flags)));
+    return 0;
+  }
+
+  if (parsed.command === 'completions') {
+    write(process.stdout, renderCompletions(resolveShell(parsed.positionals[0])));
+    return 0;
+  }
+
+  if (parsed.command === 'doctor') {
+    const report = runDoctor(process.cwd());
+    write(process.stdout, renderDoctor(report.checks, resolveToolFormat(flags), stdoutPalette));
+    return report.code;
   }
 
   const { generator, args, shorthandSize } = resolveCommand(parsed.command, parsed.positionals);
@@ -181,6 +232,10 @@ function main(argv: readonly string[]): number {
   }
 
   const results = dispatch(generator, flags, positionals);
+
+  if (flags.getBool('raw')) {
+    return writeRawResults(results, flags);
+  }
 
   const rendered = render(results, {
     generator: generator.name,
