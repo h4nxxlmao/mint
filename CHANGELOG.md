@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [SemVer](https://semver.org/).
 
+## [1.3.0] - 2026-10-22
+
+### Added
+
+- **`mint uuid --v3` / `--v5`** — RFC 9562 name-based UUIDs (MD5 / SHA-1) with `--name` and an
+  optional `--namespace` (DNS by default). Deterministic, so they report 0 bits of entropy.
+- **`mint license`** — grouped license keys in Crockford base32 (`XXXXX-XXXXX-XXXXX-XXXXX-CCCCC`)
+  with `--groups`, `--group-size` and a checksum group that catches typos (`--no-checksum`).
+- **`mint nonce`** — 96-bit nonce for AES-GCM / ChaCha20-Poly1305, base64url by default.
+- **`mint alias`** — memorable slug such as `brave-otter-42` from the bundled word list, for
+  names and usernames rather than passwords.
+- **`mint list [--json]`** — machine-readable catalog of every generator, guard command and tool.
+- **`mint completions bash|zsh|fish|powershell`** — completion scripts generated from the registry,
+  including guard subcommands.
+- **`mint doctor [--json]`** — checks Node, draws fresh CSPRNG bytes, and reports on the clipboard
+  helper, git and the guard config. Exits 1 only when a required check fails.
+- **`mint <n> --raw`** — writes the raw random bytes to stdout (`mint 32 --raw > key.bin`), with
+  `--entropy` still available on stderr.
+- `mint guard scan --exit-zero` (audit mode: report but never fail) and `mint guard env --exit-zero`.
+- `mint guard rules --severity low,medium,...` to narrow the rule table.
+
+### Changed
+
+- `mint --help` gained a tools section; `mint help list|completions|doctor` shows tool help.
+- README documents the new generators and the CLI tools.
+
 ## [1.2.0] - 2026-10-19
 
 ### Added

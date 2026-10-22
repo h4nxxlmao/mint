@@ -19,7 +19,9 @@ $ mint 32
 - **No modulo bias.** Characters are sampled with rejection sampling, so every symbol is equally likely.
 - **No dependencies.** Not at runtime, not in your `node_modules` tree.
 - **Pipe friendly.** One value on stdout, newline terminated, colors only on a TTY.
-- **40+ generators**, one consistent flag surface, hand-rolled argument parser with helpful errors.
+- **45+ generators**, one consistent flag surface, hand-rolled argument parser with helpful errors.
+- **A real toolbox.** `mint list`, shell completions, `mint doctor`, raw byte output for key files,
+  and `mint guard` for the other side of the problem.
 - **Protect what you generate.** `mint guard` scans a project for leaked secrets, gates CI, and
   tells you how to rotate them — *generate with mint, protect with mint guard*.
 
@@ -62,6 +64,7 @@ Every generator accepts `--length <n>` (characters), `--bytes <n>` or `--bits <n
 | `mint password` | strong password with digits and symbols | `mint password --length 32` |
 | `mint passphrase` | diceware-style words from 2048-word list | `mint passphrase --words 6 --separator -` |
 | `mint mnemonic` | BIP-39 recovery phrase, 12 to 24 words | `mint mnemonic --words 24` |
+| `mint alias` | memorable slug (`brave-otter-42`) | `mint alias --words 3` |
 | `mint pin` | numeric PIN | `mint pin --length 4` |
 | `mint uuid` | RFC 9562 UUID v4, v7, v1 or nil | `mint uuid --v7 --upper` |
 | `mint ulid` | ULID: timestamp + 80 random bits | `mint ulid --lower` |
@@ -74,7 +77,9 @@ Every generator accepts `--length <n>` (characters), `--bytes <n>` or `--bits <n
 | `mint typeid` | type prefix + UUIDv7 in base32 | `mint typeid user` |
 | `mint jwt-secret` | HS256/384/512 sized signing secret | `mint jwt-secret --algo hs512` |
 | `mint totp-secret` | TOTP/HOTP shared secret (base32) | `mint totp-secret --bytes 20` |
+| `mint nonce` | 96-bit nonce for AES-GCM/ChaCha20 | `mint nonce --format hex` |
 | `mint apikey` | API key with prefix and optional checksum | `mint apikey --prefix sk_live_ --checksum` |
+| `mint license` | grouped license key with typo checksum | `mint license --groups 4` |
 | `mint token` | generic bearer token | `mint token --format hex` |
 | `mint hmac` | HMAC key sized for sha256/sha512 | `mint hmac --algo sha512` |
 | `mint aes` | AES-128/192/256 key, optional IV | `mint aes --bits 256 --iv` |
@@ -169,6 +174,8 @@ $ mint guard rotate-help aws-access-key-id         # how to rotate + what to gen
 ```
 
 Exit codes: **0** clean, **1** findings at or above `--fail-on` (default `medium`), **2** usage or runtime error.
+`--exit-zero` turns a scan into an audit: findings are still reported, but the exit code stays 0.
+`mint guard rules --severity critical` narrows the rule list when you only care about one level.
 
 ### What it scans
 
@@ -383,6 +390,24 @@ History cleanup is shown as text only (`git filter-repo --path <file> --invert-p
   previews show the first four and last two characters, shorter values are fully masked.
 - No file edits, no `git add`, no history rewriting. `--fix` only prints instructions.
 - No execution of repository code, hooks or scripts while scanning.
+
+## CLI tools
+
+Beyond the generators, four commands make mint comfortable to live with:
+
+```console
+$ mint list --json                       # every generator, guard command and tool as JSON
+$ mint completions bash                  # or zsh, fish, powershell
+$ mint doctor                            # CSPRNG, Node, git, clipboard and config checks
+$ mint 32 --raw > key.bin                # write the raw bytes, no encoding
+```
+
+`mint list` is what editor plugins and your own scripts should read: it returns names, summaries,
+usage lines, examples and accepted flags. `mint doctor` draws fresh bytes from the CSPRNG and
+reports whether `--copy` and the guard git modes will work here; it exits 1 only when something
+mint genuinely needs is missing. `--raw` is available on the byte generators and refuses to be
+combined with `--json`, `--env`, `--prefix` or `--suffix`, so a pipe can never be corrupted by
+decoration.
 
 ## Security notes
 
