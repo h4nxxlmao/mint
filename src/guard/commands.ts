@@ -432,6 +432,11 @@ function stopTimer(stats: ScanStats, started: number): void {
   stats.durationMs = Date.now() - started;
 }
 
+/** `--exit-zero` turns any scan into an audit that never fails the build. */
+function applyExitMode(result: GuardResult, context: GuardContext): GuardResult {
+  return context.flags.getBool('exit-zero') ? { ...result, code: 0 } : result;
+}
+
 // ------------------------------------------------------------------ scan
 function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> {
   const flags = context.flags;
@@ -455,7 +460,7 @@ function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> 
   if (flags.getBool('history')) {
     return scanHistory(context, options, target).then((result) => {
       stopTimer(result.stats, started);
-      return finishReport(buildReport('history', result, options, target.root), context, format, rules);
+      return applyExitMode(finishReport(buildReport('history', result, options, target.root), context, format, rules), context);
     });
   }
 
@@ -463,19 +468,19 @@ function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> 
     const revision = assertRevision(flags.getString('diff') ?? '', '--diff');
     return scanDiff(options, target, revision).then((result) => {
       stopTimer(result.stats, started);
-      return finishReport(buildReport('diff', result, options, target.root), context, format, rules);
+      return applyExitMode(finishReport(buildReport('diff', result, options, target.root), context, format, rules), context);
     });
   }
 
   if (flags.getBool('staged')) {
     const result = scanStaged(context, options, target);
     stopTimer(result.stats, started);
-    return finishReport(buildReport('staged', result, options, target.root), context, format, rules);
+    return applyExitMode(finishReport(buildReport('staged', result, options, target.root), context, format, rules), context);
   }
 
   const result = scanWorktree(context, options, target);
   stopTimer(result.stats, started);
-  return finishReport(buildReport('worktree', result, options, target.root), context, format, rules);
+  return applyExitMode(finishReport(buildReport('worktree', result, options, target.root), context, format, rules), context);
 }
 
 // ----------------------------------------------------------------- check
@@ -516,7 +521,10 @@ function envCommand(context: GuardContext): GuardResult {
     stats,
     notes: outcome.notes,
   };
-  return finishReport(buildReport('env', result, options, root), context, format, allRulesWithEnv(options.rules));
+  return applyExitMode(
+    finishReport(buildReport('env', result, options, root), context, format, allRulesWithEnv(options.rules)),
+    context,
+  );
 }
 
 // -------------------------------------------------------------- baseline
@@ -615,7 +623,19 @@ function rulesCommand(context: GuardContext): GuardResult {
   if (format !== 'text' && format !== 'json') {
     throw new UsageError(`mint guard rules supports --format text or json (got "${format}")`);
   }
-  return renderRuleTable(options.rules, context, format === 'json');
+
+  const rawSeverities = context.flags
+    .getString('severity')
+    ?.split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value !== '');
+  if (rawSeverities !== undefined && rawSeverities.length > 0) {
+    const unknown = rawSeverities.filter((value) => !isSeverity(value));
+    if (unknown.length > 0) {
+      throw new UsageError(`unknown severity: ${unknown.join(', ')}`, 'use low, medium, high or critical');
+    }
+  }
+  return renderRuleTable(options.rules, context, format === 'json', rawSeverities);
 }
 
 export const GUARD_COMMANDS: readonly GuardCommand[] = [
@@ -634,6 +654,7 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'mint guard scan --staged',
       'mint guard scan --history --since "2 weeks ago"',
       'mint guard scan --diff origin/main',
+      'mint guard scan --exit-zero --format json',
       'mint guard scan --format sarif > mintguard.sarif',
     ],
     flags: [
@@ -642,6 +663,7 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'diff',
       'since',
       'fail-on',
+      'exit-zero',
       'format',
       'entropy-threshold',
       'max-file-size',
@@ -680,7 +702,7 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'example files that contain real-looking values instead of placeholders.',
     ],
     examples: ['mint guard env', 'mint guard env --format json'],
-    flags: ['fail-on', 'format', 'baseline', 'baseline-file', 'config', 'quiet'],
+    flags: ['fail-on', 'exit-zero', 'format', 'baseline', 'baseline-file', 'config', 'quiet'],
     run: envCommand,
   },
   {
@@ -735,8 +757,8 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
     name: 'rules',
     summary: 'List every detection rule with its severity and replacement command',
     usage: 'rules [--format text|json]',
-    examples: ['mint guard rules', 'mint guard rules --format json'],
-    flags: ['format'],
+    examples: ['mint guard rules', 'mint guard rules --severity critical,high', 'mint guard rules --format json'],
+    flags: ['format', 'severity'],
     run: rulesCommand,
   },
 ];

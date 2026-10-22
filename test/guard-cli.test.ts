@@ -295,6 +295,35 @@ test('env checks tracked, unignored and missing example files', (context) => {
   assert.equal(JSON.parse(healthy.stdout).findings.length, 0);
 });
 
+test('scan --exit-zero reports findings without failing', (context) => {
+  const tree = plantedTree(context);
+  assert.equal(run(['guard', 'scan', tree.dir, '--format', 'json']).status, 1);
+
+  const audit = run(['guard', 'scan', tree.dir, '--exit-zero', '--format', 'json']);
+  assert.equal(audit.status, 0, audit.stderr);
+  assert.ok(JSON.parse(audit.stdout).findings.length > 0, 'audit mode must still report the findings');
+
+  const env = run(['guard', 'env', tree.dir, '--exit-zero']);
+  assert.equal(env.status, 0, env.stderr);
+});
+
+test('rules can be filtered by severity', () => {
+  const critical = JSON.parse(run(['guard', 'rules', '--severity', 'critical', '--format', 'json']).stdout);
+  assert.ok(critical.rules.length > 0);
+  assert.ok(critical.rules.every((rule: { severity: string }) => rule.severity === 'critical'));
+
+  const mixed = JSON.parse(run(['guard', 'rules', '--severity', 'critical,low', '--format', 'json']).stdout);
+  assert.ok(mixed.rules.every((rule: { severity: string }) => rule.severity === 'critical' || rule.severity === 'low'));
+
+  const text = run(['guard', 'rules', '--severity', 'low']);
+  assert.equal(text.status, 0);
+  assert.doesNotMatch(text.stdout, /private-key-block/u);
+
+  const unknown = run(['guard', 'rules', '--severity', 'urgent']);
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown severity/u);
+});
+
 test('rotate-help resolves rules and finding ids', () => {
   const byRule = run(['guard', 'rotate-help', 'aws-access-key-id']);
   assert.equal(byRule.status, 0);

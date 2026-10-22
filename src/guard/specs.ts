@@ -22,6 +22,17 @@ export const GUARD_FLAGS: readonly FlagSpec[] = [
     default: 'medium',
   },
   {
+    name: 'exit-zero',
+    type: 'boolean',
+    description: 'Always exit 0 (audit mode: report findings without failing)',
+  },
+  {
+    name: 'severity',
+    type: 'string',
+    arg: '<list>',
+    description: 'Only list rules at these severities (comma separated)',
+  },
+  {
     name: 'entropy-threshold',
     type: 'string',
     arg: '<bits>',

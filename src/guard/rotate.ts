@@ -99,8 +99,15 @@ export function renderRotateHelp(query: string, rules: readonly Rule[], context:
   return { code: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
 
-export function renderRuleTable(rules: readonly Rule[], context: GuardContext, asJson: boolean): GuardResult {
-  const all = allRulesWithEnv(rules);
+export function renderRuleTable(
+  rules: readonly Rule[],
+  context: GuardContext,
+  asJson: boolean,
+  severities?: readonly string[],
+): GuardResult {
+  const all = allRulesWithEnv(rules).filter(
+    (rule) => severities === undefined || severities.length === 0 || severities.includes(rule.severity),
+  );
   if (asJson) {
     const payload = all.map((rule) => ({
       id: rule.id,
