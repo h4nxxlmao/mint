@@ -9,11 +9,12 @@ import { alphabetEntropyBits, randomBytes, randomIntBelow, sampleChar, sampleCha
 import { BASE62_ALPHABET, CROCKFORD_ALPHABET, encodeBase62, encodeCrockford } from '../encodings.js';
 import { charsForEntropy, readSize } from '../size.js';
 import { requestedBits } from './chars.js';
-import type { GenContext, Generator } from '../types.js';
+import type { GenContext, GenResult, Generator } from '../types.js';
 
 const UUID_EPOCH_100NS = 122192928000000000n; // 1582-10-15 -> 1970-01-01 in 100ns ticks
 const KSUID_EPOCH_SECONDS = 1400000000;
 const SNOWFLAKE_EPOCH_MS = 1420070400000n;
+const DNS_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 
 function formatUuid(bytes: Buffer, options: { dashes?: boolean; upper?: boolean } = {}): string {
   const hex = bytes.toString('hex');
@@ -65,6 +66,29 @@ function uuidV1Bytes(): Buffer {
   return bytes;
 }
 
+/** Parse the canonical 8-4-4-4-12 form into 16 bytes. */
+export function parseUuid(text: string): Buffer {
+  const hex = text.replace(/-/gu, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/u.test(hex)) {
+    throw new UsageError(`"${text}" is not a UUID`, 'example: 6ba7b810-9dad-11d1-80b4-00c04fd430c8');
+  }
+  return Buffer.from(hex, 'hex');
+}
+
+/**
+ * RFC 9562 name-based UUID: hash(namespace bytes + name bytes), then stamp the
+ * version and variant bits. Deterministic by design, so it reports 0 bits.
+ */
+function uuidNameBytes(version: 3 | 5, namespace: string, name: string): Buffer {
+  const digest = createHash(version === 3 ? 'md5' : 'sha1')
+    .update(Buffer.concat([parseUuid(namespace), Buffer.from(name, 'utf8')]))
+    .digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | (version === 3 ? 0x30 : 0x50);
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytes;
+}
+
 let cuidCounter = randomIntBelow(1679616);
 const cuidFingerprint = sampleChars(4, `${LOWER}0123456789`);
 
@@ -112,14 +136,25 @@ function uuidUppercase(context: GenContext): boolean {
 
 export const uuidGenerator: Generator = {
   name: 'uuid',
-  summary: 'RFC 9562 UUID (v4 random, v7 sortable, v1 timestamp, nil)',
-  usage: 'uuid [--v7 | --v1 | --nil] [--upper] [--no-dashes]',
-  details: ['v4 (default) carries 122 random bits.', 'v7 carries a 48-bit timestamp plus 74 random bits.'],
-  examples: ['mint uuid', 'mint uuid --v7', 'mint uuid --no-dashes --upper'],
-  flags: ['v1', 'v4', 'v7', 'nil', 'dashes', 'upper', 'lower'],
-  run(context) {
+  summary: 'RFC 9562 UUID (v4 random, v7 sortable, v1/v3/v5, nil)',
+  usage: 'uuid [--v7 | --v1 | --v3 --name <str> | --v5 --name <str> | --nil] [--upper] [--no-dashes]',
+  details: [
+    'v4 (default) carries 122 random bits.',
+    'v7 carries a 48-bit timestamp plus 74 random bits.',
+    'v3 (MD5) and v5 (SHA-1) hash a name inside a namespace; the same inputs always produce',
+    'the same UUID, so they report 0 bits of entropy. The default namespace is DNS.',
+  ],
+  examples: [
+    'mint uuid',
+    'mint uuid --v7',
+    'mint uuid --no-dashes --upper',
+    'mint uuid --v5 --name example.com',
+    'mint uuid --v5 --namespace 6ba7b810-9dad-11d1-80b4-00c04fd430c8 --name me@example.com',
+  ],
+  flags: ['v1', 'v3', 'v4', 'v5', 'v7', 'nil', 'dashes', 'upper', 'lower', 'namespace', 'name'],
+  run(context): GenResult {
     const flags = context.flags;
-    const variant = ['v1', 'v4', 'v7', 'nil'].filter((name) => flags.getBool(name));
+    const variant = ['v1', 'v3', 'v4', 'v5', 'v7', 'nil'].filter((name) => flags.getBool(name));
     if (variant.length > 1) {
       throw new UsageError(`use only one UUID version (got ${variant.map((name) => `--${name}`).join(', ')})`);
     }
@@ -129,6 +164,25 @@ export const uuidGenerator: Generator = {
 
     if (chosen === 'nil') {
       return { value: formatUuid(Buffer.alloc(16), { dashes, upper }), fields: { version: 'nil' }, entropyBits: 0 };
+    }
+    if (chosen === 'v3' || chosen === 'v5') {
+      const name = flags.getString('name');
+      if (name === undefined || name === '') {
+        throw new UsageError(`uuid --${chosen} needs --name <string>`, 'the same name in the same namespace always yields the same UUID');
+      }
+      const namespace = flags.getString('namespace') ?? DNS_NAMESPACE;
+      const version = chosen === 'v3' ? 3 : 5;
+      return {
+        value: formatUuid(uuidNameBytes(version, namespace, name), { dashes, upper }),
+        fields: { version, namespace },
+        entropyBits: 0,
+      };
+    }
+    if (chosen !== 'v4' && chosen !== 'v7' && chosen !== 'v1') {
+      throw new UsageError(`unsupported UUID version ${chosen}`);
+    }
+    if (flags.has('name') || flags.has('namespace')) {
+      throw new UsageError('--name and --namespace only apply to --v3 and --v5');
     }
     if (chosen === 'v7') {
       return {

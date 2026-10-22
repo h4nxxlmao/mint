@@ -530,12 +530,71 @@ test('the canonical BIP-39 vector and checksum validation', () => {
   assert.throws(() => mnemonicToEntropy(broken), UsageError);
 });
 
+test('uuid v3 and v5 are deterministic and match the RFC vectors', () => {
+  const dns = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+  assert.equal(value('uuid', { v5: true, name: 'example.com' }), 'cfbff0d1-9375-5685-968c-48ce8b15ae17');
+  assert.equal(value('uuid', { v5: true, name: 'example.com', namespace: dns }), 'cfbff0d1-9375-5685-968c-48ce8b15ae17');
+  assert.equal(value('uuid', { v3: true, name: 'example.com' }), '9073926b-929f-31c2-abc9-fad77ae3e8eb');
+
+  assert.equal(value('uuid', { v5: true, name: 'same' }), value('uuid', { v5: true, name: 'same' }));
+  assert.notEqual(value('uuid', { v5: true, name: 'one' }), value('uuid', { v5: true, name: 'two' }));
+  assert.match(value('uuid', { v5: true, name: 'x', upper: true, dashes: false }), /^[0-9A-F]{32}$/u);
+  assert.equal(mint('uuid', { v5: true, name: 'x' }).entropyBits, 0);
+});
+
+test('name-based UUIDs validate their inputs', () => {
+  assert.throws(() => value('uuid', { v5: true }), UsageError);
+  assert.throws(() => value('uuid', { v3: true }), UsageError);
+  assert.throws(() => value('uuid', { v5: true, name: 'x', namespace: 'not-a-uuid' }), UsageError);
+  assert.throws(() => value('uuid', { name: 'x' }), UsageError);
+  assert.throws(() => value('uuid', { namespace: '6ba7b810-9dad-11d1-80b4-00c04fd430c8' }), UsageError);
+  assert.throws(() => value('uuid', { v5: true, v7: true, name: 'x' }), UsageError);
+});
+
+test('nonce generator', () => {
+  assertMatch(value('nonce'), /^[A-Za-z0-9_-]{16}$/);
+  assertMatch(value('nonce', { format: 'hex' }), /^[0-9a-f]{24}$/);
+  assertMatch(value('nonce', { bytes: 16 }), /^[A-Za-z0-9_-]{22}$/);
+  assert.equal(mint('nonce').entropyBits, 96);
+  assertAllDistinct(values('nonce', {}, 100));
+});
+
+test('license generator', () => {
+  const key = value('license');
+  assertMatch(key, /^[0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/);
+  assertAllDistinct(values('license', {}, 100));
+
+  const small = value('license', { groups: 3, 'group-size': 4 });
+  assertMatch(small, /^(?:[0-9A-HJKMNP-TV-Z]{4}-){3}[0-9A-HJKMNP-TV-Z]{4}$/);
+
+  const plain = value('license', { checksum: false });
+  assert.equal(plain.split('-').length, 4);
+
+  assert.equal(mint('license').entropyBits, 100);
+  assert.throws(() => value('license', { groups: 20 }), UsageError);
+  assert.throws(() => value('license', { 'group-size': 2 }), UsageError);
+});
+
+test('alias generator', () => {
+  const alias = value('alias');
+  const parts = alias.split('-');
+  assert.equal(parts.length, 3);
+  assert.ok(WORDLIST.includes(parts[0]));
+  assert.ok(WORDLIST.includes(parts[1]));
+  assert.match(parts[2], /^\d{2}$/u);
+
+  assert.equal(value('alias', { words: 3 }).split('-').length, 4);
+  assert.equal(value('alias', { number: false }).split('-').length, 2);
+  assert.equal(value('alias', { words: 2, separator: '.' }).split('.').length, 3);
+  assert.throws(() => value('alias', { words: 9 }), UsageError);
+});
+
 test('entropy metadata is present for every generator', () => {
   const commands = [
-    'bytes', 'hex', 'chars', 'password', 'passphrase', 'mnemonic', 'pin', 'uuid', 'ulid', 'ksuid',
-    'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'typeid', 'jwt-secret', 'totp-secret', 'apikey',
-    'token', 'hmac', 'aes', 'keypair', 'salt', 'session', 'webhook-secret', 'color', 'mac', 'ipv4',
-    'ipv6', 'port', 'int', 'dice', 'coin',
+    'bytes', 'hex', 'chars', 'password', 'passphrase', 'mnemonic', 'alias', 'pin', 'uuid', 'ulid',
+    'ksuid', 'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'typeid', 'jwt-secret', 'totp-secret',
+    'nonce', 'apikey', 'license', 'token', 'hmac', 'aes', 'keypair', 'salt', 'session',
+    'webhook-secret', 'color', 'mac', 'ipv4', 'ipv6', 'port', 'int', 'dice', 'coin',
   ];
   for (const command of commands) {
     const result = mint(command);

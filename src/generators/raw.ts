@@ -33,7 +33,17 @@ const SAMPLE_ALPHABETS: Record<Encoding, string> = {
   binary: '01',
 };
 
-const RAW_FLAGS = [...ENCODING_FLAGS, 'length', 'size', 'bytes', 'bits', 'upper', 'lower', 'padding'] as const;
+const RAW_FLAGS = [
+  ...ENCODING_FLAGS,
+  'length',
+  'size',
+  'bytes',
+  'bits',
+  'upper',
+  'lower',
+  'padding',
+  'raw',
+] as const;
 
 function resolveEncoding(context: GenContext, fallback: Encoding): Encoding {
   const chosen = assertExclusive(context.flags, ENCODING_FLAGS, 'encoding');
@@ -87,6 +97,7 @@ function run(context: GenContext, fallback: Encoding, defaultBytes: number, defa
       value: toBinaryString(bytes, bits),
       fields: { encoding, bits },
       entropyBits: bits,
+      ...(request.mode === 'chars' ? {} : { raw: bytes }),
     };
   }
 
@@ -107,6 +118,7 @@ function run(context: GenContext, fallback: Encoding, defaultBytes: number, defa
     value: encodeWith(context, encoding, bytes),
     fields: { encoding, bytes: byteCount },
     entropyBits: byteCount * 8,
+    raw: bytes,
   };
 }
 

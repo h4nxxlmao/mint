@@ -7,6 +7,8 @@ export interface GenResult {
   fields?: Record<string, string | number | boolean>;
   /** Bits of CSPRNG entropy in the value. */
   entropyBits?: number;
+  /** Raw bytes behind the value, written verbatim by --raw. */
+  raw?: Buffer;
 }
 
 export interface GenContext {

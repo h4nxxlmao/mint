@@ -100,14 +100,20 @@ export const EXTRA_FLAGS: readonly FlagSpec[] = [
 
   // identifiers
   spec({ name: 'dashes', type: 'boolean', shownAs: '--no-dashes', description: 'Include dashes', default: true }),
+  spec({ name: 'v3', type: 'boolean', description: 'UUID v3 (MD5, name based)' }),
   spec({ name: 'v4', type: 'boolean', description: 'UUID v4 (random)' }),
+  spec({ name: 'v5', type: 'boolean', description: 'UUID v5 (SHA-1, name based)' }),
   spec({ name: 'v7', type: 'boolean', description: 'UUID v7 (time-sortable)' }),
   spec({ name: 'v1', type: 'boolean', description: 'UUID v1 (timestamp + random node)' }),
   spec({ name: 'nil', type: 'boolean', description: 'All-zero UUID' }),
+  spec({ name: 'namespace', type: 'string', arg: '<uuid>', description: 'Namespace for --v3/--v5 (default: DNS)' }),
+  spec({ name: 'name', type: 'string', arg: '<str>', description: 'Name for --v3/--v5' }),
   spec({ name: 'alphabet', type: 'string', arg: '<chars>', description: 'Custom alphabet' }),
   spec({ name: 'sortable', type: 'boolean', description: 'Prefix with a base36 timestamp' }),
   spec({ name: 'worker', type: 'int', arg: '<0-1023>', description: 'Snowflake worker id' }),
   spec({ name: 'type', type: 'string', arg: '<name>', description: 'TypeID type prefix', default: 'id' }),
+  spec({ name: 'groups', type: 'int', arg: '<n>', description: 'Number of key groups', default: 4 }),
+  spec({ name: 'group-size', type: 'int', arg: '<n>', description: 'Characters per key group', default: 5 }),
 
   // developer secrets
   spec({ name: 'algo', type: 'string', arg: '<name>', description: 'Algorithm (sha256, sha384, sha512)' }),
@@ -122,6 +128,7 @@ export const EXTRA_FLAGS: readonly FlagSpec[] = [
   spec({ name: 'public', type: 'boolean', description: 'Exclude private/reserved addresses' }),
   spec({ name: 'compressed', type: 'boolean', description: 'Use RFC 5952 :: compression' }),
   spec({ name: 'unique', type: 'boolean', description: 'Pick distinct items' }),
+  spec({ name: 'raw', type: 'boolean', description: 'Write raw bytes to stdout instead of text' }),
 ];
 
 export const ALL_FLAGS: readonly FlagSpec[] = [...GLOBAL_FLAGS, ...SIZE_FLAGS, ...EXTRA_FLAGS, ...GUARD_FLAGS];

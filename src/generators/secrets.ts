@@ -78,6 +78,19 @@ function byteSecret(context: GenContext, options: { defaultBytes: number; format
 
 const BYTE_SECRET_FLAGS = ['length', 'size', 'bytes', 'bits', 'format', 'upper'] as const;
 
+export const nonceGenerator: Generator = {
+  name: 'nonce',
+  summary: 'Random nonce for AEAD ciphers (12 bytes, base64url)',
+  usage: 'nonce [--bytes 12] [--format base64url]',
+  details: [
+    'AES-GCM and ChaCha20-Poly1305 use a 96-bit nonce. Generate a fresh one for every',
+    'message: reusing a nonce with the same key breaks confidentiality and integrity.',
+  ],
+  examples: ['mint nonce', 'mint nonce --format hex', 'mint nonce --count 3'],
+  flags: BYTE_SECRET_FLAGS,
+  run: (context) => byteSecret(context, { defaultBytes: 12, format: 'base64url' }),
+};
+
 export const totpSecretGenerator: Generator = {
   name: 'totp-secret',
   summary: 'TOTP/HOTP shared secret (base32, RFC 4226)',
