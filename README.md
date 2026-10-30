@@ -513,6 +513,16 @@ Guidelines:
 
 ## License
 
-[MIT](./LICENSE). The bundled passphrase word list is the BIP-39 English list (2048 words),
-redistributed from [`@scure/bip39`](https://github.com/paulmillr/scure-bip39) under the MIT
-license; see the LICENSE file for details.
+Copyright (C) 2026 h4nxxlmao.
+
+mint is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+mint is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+[GNU General Public License](./LICENSE) for more details.
+
+The bundled passphrase word list is the BIP-39 English list (2048 words), redistributed from
+[`@scure/bip39`](https://github.com/paulmillr/scure-bip39) under the MIT license; the full notice
+lives in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).

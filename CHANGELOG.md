@@ -26,6 +26,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [S
 
 ### Changed
 
+- **Relicensed from MIT to GPL-3.0-or-later** (GNU General Public License, version 3 or later).
+  The third-party notice for the bundled BIP-39 word list moved to
+  [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md).
 - `mint --help` gained a tools section; `mint help list|completions|doctor` shows tool help.
 - README documents the new generators and the CLI tools.
 
@@ -120,4 +123,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [S
 - CSPRNG-only randomness with rejection sampling for every charset, integer and shuffle.
 - `--length` / `--bytes` / `--bits`, `--count`, `--json`, `--no-newline`, `--copy`, `--entropy`,
   `--env`, `--prefix` / `--suffix`, `mint <n>` shorthand and colored help.
-- 2048-word passphrase list, MIT-licensed, attributed in the LICENSE file.
+- 2048-word passphrase list, MIT-licensed, attributed in THIRD-PARTY-NOTICES.md.
