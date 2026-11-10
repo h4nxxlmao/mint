@@ -18,7 +18,12 @@ export function assertSupportedFlags(generator: Generator, given: readonly strin
 }
 
 /** Validate the invocation, then run the generator (possibly several times for --count). */
-export function dispatch(generator: Generator, flags: Flags, positionals: string[]): GenResult[] {
+export function dispatch(
+  generator: Generator,
+  flags: Flags,
+  positionals: string[],
+  readStdin?: () => string[],
+): GenResult[] {
   assertSupportedFlags(generator, flags.keys());
 
   if (positionals.length > 0 && !generator.acceptsPositionals) {
@@ -29,7 +34,7 @@ export function dispatch(generator: Generator, flags: Flags, positionals: string
   }
 
   const count = flags.getInt('count', { min: 1, max: 10_000 }) ?? 1;
-  const context = { command: generator.name, flags, positionals };
+  const context = { command: generator.name, flags, positionals, ...(readStdin === undefined ? {} : { readStdin }) };
   const iterations = generator.usesCount ? 1 : count;
   const results: GenResult[] = [];
   for (let index = 0; index < iterations; index++) {

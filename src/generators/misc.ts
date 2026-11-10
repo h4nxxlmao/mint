@@ -262,17 +262,21 @@ export const intGenerator: Generator = {
 };
 
 function listItems(context: GenContext, command: string): string[] {
-  if (context.positionals.length === 0) {
-    throw new UsageError(`mint ${command} needs at least one item`, `example: mint ${command} red green blue`);
-  }
-  return context.positionals;
+  if (context.positionals.length > 0) return context.positionals;
+  const piped = context.readStdin?.() ?? [];
+  if (piped.length > 0) return piped;
+  throw new UsageError(
+    `mint ${command} needs at least one item`,
+    `example: mint ${command} red green blue   (or pipe a list: ls | mint ${command})`,
+  );
 }
 
 export const pickGenerator: Generator = {
   name: 'pick',
-  summary: 'Pick a random item from the arguments',
+  summary: 'Pick a random item from the arguments or from stdin',
   usage: 'pick <item...> [--count 1] [--unique]',
-  examples: ['mint pick red green blue', 'mint pick a b c d --count 2 --unique'],
+  details: ['With no arguments the items are read from stdin, one per line: `ls | mint pick`.'],
+  examples: ['mint pick red green blue', 'ls | mint pick', 'mint pick a b c d --count 2 --unique'],
   flags: ['unique'],
   usesCount: true,
   acceptsPositionals: true,
@@ -291,9 +295,10 @@ export const pickGenerator: Generator = {
 
 export const shuffleGenerator: Generator = {
   name: 'shuffle',
-  summary: 'Shuffle the arguments into a random order',
+  summary: 'Shuffle the arguments (or stdin lines) into a random order',
   usage: 'shuffle <item...> [--count 1]',
-  examples: ['mint shuffle a b c d', 'mint shuffle one two three --count 3'],
+  details: ['With no arguments the items are read from stdin, one per line: `ls | mint shuffle`.'],
+  examples: ['mint shuffle a b c d', 'ls | mint shuffle', 'mint shuffle one two three --count 3'],
   flags: [],
   usesCount: true,
   acceptsPositionals: true,

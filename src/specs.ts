@@ -121,6 +121,10 @@ export const EXTRA_FLAGS: readonly FlagSpec[] = [
   spec({ name: 'checksum', type: 'boolean', description: 'Append a short validation checksum' }),
   spec({ name: 'openssh', type: 'boolean', description: 'Output an ssh-ed25519 public key line' }),
   spec({ name: 'comment', type: 'string', arg: '<str>', description: 'Comment for the OpenSSH public key', default: 'mint' }),
+  spec({ name: 'issuer', type: 'string', arg: '<name>', description: 'Issuer label for otpauth URIs' }),
+  spec({ name: 'account', type: 'string', arg: '<name>', description: 'Account label for otpauth URIs', default: 'mint' }),
+  spec({ name: 'period', type: 'int', arg: '<seconds>', description: 'TOTP time step', default: 30 }),
+  spec({ name: 'code-digits', type: 'int', arg: '<6|8>', description: 'TOTP code digits', default: 6 }),
 
   // misc
   spec({ name: 'min', type: 'int', arg: '<n>', description: 'Minimum value (inclusive)' }),

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -322,6 +322,48 @@ test('rules can be filtered by severity', () => {
   const unknown = run(['guard', 'rules', '--severity', 'urgent']);
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /unknown severity/u);
+});
+
+test('scan --verbose explains what was skipped', (context) => {
+  const tree = makeTempTree();
+  context.after(() => tree.cleanup());
+  tree.write('keep.ts', 'export const ok = 1;\n');
+  tree.write('ignored.ts', `const key = '${STRIPE_KEY}';\n`);
+  tree.write('.gitignore', 'ignored.ts\n');
+  tree.write('node_modules/pkg/index.js', 'module.exports = 1;\n');
+  tree.write('image.png', 'not really a png');
+
+  const result = run(['guard', 'scan', tree.dir, '--verbose']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /skip\s+ignored\.ts\s+\(ignored\)/u);
+  assert.match(result.stderr, /skip\s+node_modules\s+\(default-dir\)/u);
+  assert.match(result.stderr, /skip\s+image\.png\s+\(binary-extension\)/u);
+
+  const quiet = run(['guard', 'scan', tree.dir]);
+  assert.doesNotMatch(quiet.stderr, /skip /u);
+});
+
+test('baseline --prune drops entries whose finding is gone', (context) => {
+  const tree = makeTempTree();
+  context.after(() => tree.cleanup());
+  tree.write('a.ts', `const a = '${STRIPE_KEY}';\n`);
+  tree.write('b.ts', `const b = '${GITHUB_TOKEN}';\n`);
+
+  const first = run(['guard', 'baseline', tree.dir]);
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /wrote 2 finding hashes/u);
+
+  rmSync(join(tree.dir, 'b.ts'));
+  const pruned = run(['guard', 'baseline', '--prune', tree.dir]);
+  assert.equal(pruned.status, 0, pruned.stderr);
+  assert.match(pruned.stdout, /1 stale entry pruned/u);
+
+  const baseline = JSON.parse(readFileSync(join(tree.dir, '.mintguard-baseline.json'), 'utf8'));
+  assert.equal(baseline.findings.length, 1);
+
+  const rescan = run(['guard', 'scan', tree.dir, '--format', 'json']);
+  assert.equal(rescan.status, 0, rescan.stdout);
+  assert.equal(JSON.parse(rescan.stdout).findings.length, 0);
 });
 
 test('rotate-help resolves rules and finding ids', () => {

@@ -15,6 +15,12 @@ export interface GenContext {
   command: string;
   flags: Flags;
   positionals: string[];
+  /**
+   * Reads piped stdin lines. Only the CLI provides this, and only for commands that
+   * accept a list; the programmatic API leaves it undefined so a call can never block
+   * waiting for input.
+   */
+  readStdin?: () => string[];
 }
 
 export interface Generator {

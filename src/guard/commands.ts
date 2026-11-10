@@ -31,12 +31,25 @@ import type { Finding, GuardCommand, GuardContext, GuardReport, GuardResult, Rul
 
 const MAX_FINDINGS = 5000;
 const PROGRESS_EVERY = 250;
+const MAX_VERBOSE = 500;
 
 interface ScanResult {
   findings: Finding[];
   baselined: number;
   stats: ScanStats;
   notes: string[];
+  /** Baseline hashes that this scan still matched (used by `baseline --prune`). */
+  baselineMatched?: string[];
+  /** Skip lines for `--verbose`. */
+  verbose?: string[];
+}
+
+/** `--verbose` diagnostics go to stderr so stdout stays pipeable. */
+function withVerbose(result: GuardResult, scan: ScanResult): GuardResult {
+  const lines = scan.verbose ?? [];
+  if (lines.length === 0) return result;
+  const capped = lines.length > MAX_VERBOSE ? [...lines.slice(0, MAX_VERBOSE), `... ${String(lines.length - MAX_VERBOSE)} more`] : lines;
+  return { ...result, stderr: `${result.stderr}${capped.join('\n')}\n` };
 }
 
 function newStats(mode: ScanStats['mode']): ScanStats {
@@ -200,11 +213,19 @@ function scanWorktree(
     const outcome = scanner.outcome();
     stats.longLinesSkipped = outcome.longLinesSkipped;
     stats.truncated = outcome.truncated;
-    return { findings: outcome.findings, baselined: outcome.baselined, stats, notes: [] };
+    return {
+      findings: outcome.findings,
+      baselined: outcome.baselined,
+      stats,
+      notes: [],
+      baselineMatched: outcome.baselinedHashes,
+    };
   }
 
   let seen = 0;
   const unreadable: string[] = [];
+  const verbose: string[] = [];
+  const verboseEnabled = context.flags.getBool('verbose');
   for (const event of walkFiles({
     root: target.root,
     maxFileSize: options.maxFileSize,
@@ -217,6 +238,7 @@ function scanWorktree(
       stats.filesSkipped++;
       if (event.reason === 'too-large') stats.oversized++;
       if (event.reason === 'binary-extension') stats.binaries++;
+      if (verboseEnabled) verbose.push(`skip  ${event.path}  (${event.reason})`);
       continue;
     }
 
@@ -226,11 +248,13 @@ function scanWorktree(
     } catch {
       stats.filesSkipped++;
       unreadable.push(event.path);
+      if (verboseEnabled) verbose.push(`skip  ${event.path}  (unreadable)`);
       continue;
     }
     if (looksBinary(buffer)) {
       stats.binaries++;
       stats.filesSkipped++;
+      if (verboseEnabled) verbose.push(`skip  ${event.path}  (binary)`);
       continue;
     }
 
@@ -252,14 +276,34 @@ function scanWorktree(
     const rest = unreadable.length > 3 ? ` and ${String(unreadable.length - 3)} more` : '';
     notes.push(`${String(unreadable.length)} file(s) could not be read: ${listed}${rest}`);
   }
-  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
+  return {
+    findings: outcome.findings,
+    baselined: outcome.baselined,
+    stats,
+    notes,
+    baselineMatched: outcome.baselinedHashes,
+    verbose,
+  };
 }
 
 function scanStaged(context: GuardContext, options: ResolvedOptions, target: ScanTarget): ScanResult {
   const repo = requireRepo(target.root, '"mint guard scan --staged"');
   const ignore = buildIgnoreSet(target.root, options.config, options.useGitignore);
   const allPaths = stagedPaths(repo);
-  const paths = allPaths.filter((path) => matchesTarget(path, target) && !isIgnoredPath(path, target, ignore, options));
+  const verboseEnabled = context.flags.getBool('verbose');
+  const verbose: string[] = [];
+  const paths: string[] = [];
+  for (const path of allPaths) {
+    if (!matchesTarget(path, target)) {
+      if (verboseEnabled) verbose.push(`skip  ${path}  (outside target)`);
+      continue;
+    }
+    if (isIgnoredPath(path, target, ignore, options)) {
+      if (verboseEnabled) verbose.push(`skip  ${path}  (ignored)`);
+      continue;
+    }
+    paths.push(path);
+  }
   const scanner = new Scanner(settings(options));
   const stats = newStats('staged');
 
@@ -287,7 +331,14 @@ function scanStaged(context: GuardContext, options: ResolvedOptions, target: Sca
   let notes: string[] = [];
   if (allPaths.length === 0) notes = ['nothing staged: git diff --cached is empty'];
   else if (paths.length === 0) notes = ['no staged changes for this path'];
-  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
+  return {
+    findings: outcome.findings,
+    baselined: outcome.baselined,
+    stats,
+    notes,
+    baselineMatched: outcome.baselinedHashes,
+    verbose,
+  };
 }
 
 async function scanHistory(context: GuardContext, options: ResolvedOptions, target: ScanTarget): Promise<ScanResult> {
@@ -326,7 +377,13 @@ async function scanHistory(context: GuardContext, options: ResolvedOptions, targ
     `${String(summary.commits)} commit${summary.commits === 1 ? '' : 's'} scanned`,
     'history findings show the commit that introduced each secret',
   ];
-  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
+  return {
+    findings: outcome.findings,
+    baselined: outcome.baselined,
+    stats,
+    notes,
+    baselineMatched: outcome.baselinedHashes,
+  };
 }
 
 async function scanDiff(
@@ -355,7 +412,13 @@ async function scanDiff(
   stats.longLinesSkipped = outcome.longLinesSkipped;
   stats.truncated = outcome.truncated;
   const notes = [`diff ${revision}...HEAD: ${String(summary.files)} changed file${summary.files === 1 ? '' : 's'}`];
-  return { findings: outcome.findings, baselined: outcome.baselined, stats, notes };
+  return {
+    findings: outcome.findings,
+    baselined: outcome.baselined,
+    stats,
+    notes,
+    baselineMatched: outcome.baselinedHashes,
+  };
 }
 
 function exitCodeFor(report: GuardReport): number {
@@ -460,7 +523,8 @@ function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> 
   if (flags.getBool('history')) {
     return scanHistory(context, options, target).then((result) => {
       stopTimer(result.stats, started);
-      return applyExitMode(finishReport(buildReport('history', result, options, target.root), context, format, rules), context);
+      const report = finishReport(buildReport('history', result, options, target.root), context, format, rules);
+      return applyExitMode(withVerbose(report, result), context);
     });
   }
 
@@ -468,19 +532,22 @@ function scanCommand(context: GuardContext): GuardResult | Promise<GuardResult> 
     const revision = assertRevision(flags.getString('diff') ?? '', '--diff');
     return scanDiff(options, target, revision).then((result) => {
       stopTimer(result.stats, started);
-      return applyExitMode(finishReport(buildReport('diff', result, options, target.root), context, format, rules), context);
+      const report = finishReport(buildReport('diff', result, options, target.root), context, format, rules);
+      return applyExitMode(withVerbose(report, result), context);
     });
   }
 
   if (flags.getBool('staged')) {
     const result = scanStaged(context, options, target);
     stopTimer(result.stats, started);
-    return applyExitMode(finishReport(buildReport('staged', result, options, target.root), context, format, rules), context);
+    const report = finishReport(buildReport('staged', result, options, target.root), context, format, rules);
+    return applyExitMode(withVerbose(report, result), context);
   }
 
   const result = scanWorktree(context, options, target);
   stopTimer(result.stats, started);
-  return applyExitMode(finishReport(buildReport('worktree', result, options, target.root), context, format, rules), context);
+  const report = finishReport(buildReport('worktree', result, options, target.root), context, format, rules);
+  return applyExitMode(withVerbose(report, result), context);
 }
 
 // ----------------------------------------------------------------- check
@@ -534,19 +601,28 @@ function baselineCommand(context: GuardContext): GuardResult {
   const options = resolveOptions(context, target.root, () => undefined);
   const existing = readBaseline(options.baselineFile);
   const salt = baselineSalt(existing);
+  const existingHashes = new Set((existing?.findings ?? []).map((entry) => entry.hash));
   const started = startTimer();
-  const result = scanWorktree(context, options, target, { salt, baselineIds: new Set<string>() });
+  const result = scanWorktree(context, options, target, { salt, baselineIds: existingHashes });
   stopTimer(result.stats, started);
 
-  const written = writeBaseline(options.baselineFile, salt, result.findings, existing);
+  const prune = context.flags.getBool('prune');
+  const written = writeBaseline(options.baselineFile, salt, result.findings, existing, {
+    prune,
+    matchedHashes: result.baselineMatched ?? [],
+  });
+
   const lines: string[] = [];
   lines.push(`${context.palette.bold('mint guard baseline')}`);
   lines.push('');
   lines.push(`  wrote ${String(written.total)} finding hash${written.total === 1 ? '' : 'es'} to ${written.path}`);
-  lines.push(`  ${String(written.added)} new since the last baseline`);
+  lines.push(
+    `  ${String(written.added)} new since the last baseline${prune ? `, ${String(written.removed)} stale entr${written.removed === 1 ? 'y' : 'ies'} pruned` : ''}`,
+  );
   lines.push(`  ${context.palette.dim(statsSummary(result.stats))}`);
   lines.push('');
   lines.push('  these findings are now ignored: only new leaks will fail a scan.');
+  if (!prune) lines.push(`  ${context.palette.dim('run with --prune to drop entries whose finding is gone.')}`);
   lines.push(`  ${context.palette.dim('the file holds salted hashes, never secrets - commit it if you like.')}`);
   return { code: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
@@ -647,6 +723,7 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'A path may be a directory or a single file. Git modes only report files under that path.',
       'Respects .gitignore, .mintguardignore and .mintguard.json; skips node_modules, .git,',
       'build output, lockfiles and binary files. Exit codes: 0 clean, 1 findings, 2 error.',
+      '--verbose lists every skipped file and the reason on stderr.',
     ],
     examples: [
       'mint guard scan',
@@ -675,6 +752,7 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
       'rules',
       'fix',
       'quiet',
+      'verbose',
       'inline-comments',
     ],
     run: scanCommand,
@@ -708,13 +786,14 @@ export const GUARD_COMMANDS: readonly GuardCommand[] = [
   {
     name: 'baseline',
     summary: 'Record current findings so only new leaks fail future scans',
-    usage: 'baseline [path] [--baseline-file .mintguard-baseline.json]',
+    usage: 'baseline [path] [--prune] [--baseline-file .mintguard-baseline.json]',
     details: [
       'Stores a salted hash per finding - never the secret itself. Re-run it after a',
       'deliberate, reviewed secret to keep the gate focused on new leaks.',
+      '--prune drops entries whose finding no longer exists, keeping the file tidy.',
     ],
-    examples: ['mint guard baseline', 'mint guard baseline --baseline-file .guard-baseline.json'],
-    flags: ['baseline-file', 'config', 'quiet'],
+    examples: ['mint guard baseline', 'mint guard baseline --prune', 'mint guard baseline --baseline-file .guard-baseline.json'],
+    flags: ['baseline-file', 'config', 'quiet', 'prune'],
     run: baselineCommand,
   },
   {

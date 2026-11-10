@@ -68,6 +68,7 @@ const SHAPES = {
   alias: /^[a-z]+(?:-[a-z]+)+-\d{2}$/,
   license: /^[0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/,
   nonce: /^[A-Za-z0-9_-]{16}$/,
+  otpauth: /^otpauth:\/\/totp\/[^?]+\?secret=[A-Z2-7]{32}/,
   int: /^\d+$/,
   dice: /^\d{1,2}$/,
   coin: /^(heads|tails)$/,
@@ -405,6 +406,7 @@ expectOk('mint uuid --v5 --name example.com', ['uuid', '--v5', '--name', 'exampl
 expectOk('mint uuid --v3 --name example.com', ['uuid', '--v3', '--name', 'example.com']);
 expectOk('mint alias --words 3', ['alias', '--words', '3']);
 expectOk('mint license --groups 5', ['license', '--groups', '5']);
+expectOk('mint otpauth --issuer Acme', ['otpauth', '--issuer', 'Acme']);
 
 const v5 = run(['uuid', '--v5', '--name', 'example.com']);
 checks++;
@@ -424,7 +426,7 @@ try {
   const parsed = JSON.parse(catalogRun.stdout);
   check(
     'mint list --json',
-    catalogRun.status === 0 && parsed.generators.length >= 40 && parsed.guard.length >= 9 && parsed.tools.length === 3,
+    catalogRun.status === 0 && parsed.generators.length >= 40 && parsed.guard.length >= 9 && parsed.tools.length === 4,
     'unexpected payload',
   );
 } catch (error) {
@@ -446,6 +448,31 @@ try {
   check('mint doctor --json', doctorRun.status === 0 && parsed.ok === true && Array.isArray(parsed.checks), 'unexpected payload');
 } catch (error) {
   check('mint doctor --json', false, `not JSON: ${String(error)}`);
+}
+
+const inspectKnown = run(['inspect', '01M57Q0QNXBP0EZ0SD577CK4QF']);
+checks++;
+check(
+  'mint inspect (ulid)',
+  inspectKnown.status === 0 && /ulid/.test(inspectKnown.stdout) && !inspectKnown.stdout.includes('01M57Q0QNXBP0EZ0SD577CK4QF'),
+  `exit ${inspectKnown.status}`,
+);
+
+const inspectUnknown = run(['inspect', 'hello']);
+checks++;
+check('mint inspect (unknown) -> exit 1', inspectUnknown.status === 1, `exit ${inspectUnknown.status}`);
+
+const inspectJsonRun = run(['inspect', 'cfbff0d1-9375-5685-968c-48ce8b15ae17', '--json']);
+checks++;
+try {
+  const parsed = JSON.parse(inspectJsonRun.stdout);
+  check(
+    'mint inspect --json',
+    inspectJsonRun.status === 0 && parsed.recognized === true && parsed.formats[0].name === 'uuid',
+    'unexpected payload',
+  );
+} catch (error) {
+  check('mint inspect --json', false, `not JSON: ${String(error)}`);
 }
 
 // ------------------------------------------------------------------- guard
@@ -524,5 +551,6 @@ if (failures.length > 0) {
     console.log(`   - ${failure.label}`);
     console.log(`     ${failure.detail}`);
   }
-  process.exit(1);
+  // Set the code instead of calling process.exit so piped output is flushed.
+  process.exitCode = 1;
 }

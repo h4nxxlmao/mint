@@ -105,6 +105,53 @@ export const totpSecretGenerator: Generator = {
   run: (context) => byteSecret(context, { defaultBytes: 20, format: 'base32' }),
 };
 
+export const otpauthGenerator: Generator = {
+  name: 'otpauth',
+  summary: 'otpauth:// provisioning URI with a fresh TOTP secret',
+  usage: 'otpauth [--issuer <name>] [--account <name>] [--algo sha1|sha256|sha512] [--code-digits 6|8] [--period 30]',
+  details: [
+    'Builds the URI authenticator apps understand, around a new 160-bit base32 secret.',
+    'Issuer and account are percent-encoded, so spaces, colons and unicode are safe.',
+    'The secret is printed once inside the URI and never written anywhere.',
+  ],
+  examples: [
+    'mint otpauth --issuer GitHub --account me@example.com',
+    'mint otpauth --issuer "Acme Corp" --algo sha256 --code-digits 8',
+    'mint otpauth --issuer Acme --json',
+  ],
+  flags: ['issuer', 'account', 'algo', 'code-digits', 'period', 'bytes', 'bits'],
+  run(context) {
+    const flags = context.flags;
+    const issuer = flags.getString('issuer');
+    const account = flags.getString('account') ?? 'mint';
+    const algorithm = (flags.getEnum('algo', ['sha1', 'sha256', 'sha512'] as const) ?? 'sha1').toUpperCase();
+    const digits = flags.getInt('code-digits', { min: 6, max: 8 }) ?? 6;
+    if (digits !== 6 && digits !== 8) {
+      throw new UsageError(`--code-digits must be 6 or 8, got ${String(digits)}`);
+    }
+    const period = flags.getInt('period', { min: 1, max: 300 }) ?? 30;
+
+    const request = readSize(flags);
+    const wanted = requestedBits(request);
+    const byteCount = request.mode === 'bytes' ? request.bytes! : wanted !== undefined ? Math.ceil(wanted / 8) : 20;
+    const secret = encodeBase32(randomBytes(byteCount), { padding: false });
+
+    const label = issuer === undefined || issuer === ''
+      ? encodeURIComponent(account)
+      : `${encodeURIComponent(issuer)}:${encodeURIComponent(account)}`;
+    const query: string[] = [`secret=${secret}`];
+    if (issuer !== undefined && issuer !== '') query.push(`issuer=${encodeURIComponent(issuer)}`);
+    query.push(`algorithm=${algorithm}`, `digits=${String(digits)}`, `period=${String(period)}`);
+    const uri = `otpauth://totp/${label}?${query.join('&')}`;
+
+    return {
+      value: uri,
+      fields: { secret, issuer: issuer ?? '', account, algorithm, digits, period },
+      entropyBits: byteCount * 8,
+    };
+  },
+};
+
 export const jwtSecretGenerator: Generator = {
   name: 'jwt-secret',
   summary: 'JWT signing secret sized for HS256/HS384/HS512',

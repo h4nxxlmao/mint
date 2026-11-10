@@ -589,11 +589,40 @@ test('alias generator', () => {
   assert.throws(() => value('alias', { words: 9 }), UsageError);
 });
 
+test('otpauth generator', () => {
+  const uri = value('otpauth', { issuer: 'GitHub', account: 'me@example.com' });
+  assert.match(
+    uri,
+    /^otpauth:\/\/totp\/GitHub:me%40example\.com\?secret=[A-Z2-7]{32}&issuer=GitHub&algorithm=SHA1&digits=6&period=30$/u,
+  );
+  const parsed = new URL(uri);
+  assert.equal(parsed.searchParams.get('secret')?.length, 32);
+  assert.equal(parsed.searchParams.get('digits'), '6');
+
+  const custom = value('otpauth', { issuer: 'Acme Corp', algo: 'sha256', 'code-digits': 8, period: 60 });
+  assert.match(custom, /^otpauth:\/\/totp\/Acme%20Corp:mint\?/u);
+  assert.match(custom, /issuer=Acme%20Corp/u);
+  assert.match(custom, /algorithm=SHA256&digits=8&period=60$/u);
+
+  const withoutIssuer = value('otpauth');
+  assert.doesNotMatch(withoutIssuer, /issuer=/u);
+  assert.match(withoutIssuer, /^otpauth:\/\/totp\/mint\?secret=/u);
+
+  const result = mint('otpauth', { issuer: 'Acme' });
+  assert.equal(result.entropyBits, 160);
+  assert.equal(String(result.fields?.secret).length, 32);
+  assert.equal(result.fields?.issuer, 'Acme');
+
+  assert.throws(() => value('otpauth', { 'code-digits': 7 }), UsageError);
+  assert.throws(() => value('otpauth', { period: 0 }), UsageError);
+  assert.throws(() => value('otpauth', { algo: 'md5' }), UsageError);
+});
+
 test('entropy metadata is present for every generator', () => {
   const commands = [
     'bytes', 'hex', 'chars', 'password', 'passphrase', 'mnemonic', 'alias', 'pin', 'uuid', 'ulid',
     'ksuid', 'nanoid', 'cuid', 'uid', 'objectid', 'snowflake', 'typeid', 'jwt-secret', 'totp-secret',
-    'nonce', 'apikey', 'license', 'token', 'hmac', 'aes', 'keypair', 'salt', 'session',
+    'otpauth', 'nonce', 'apikey', 'license', 'token', 'hmac', 'aes', 'keypair', 'salt', 'session',
     'webhook-secret', 'color', 'mac', 'ipv4', 'ipv6', 'port', 'int', 'dice', 'coin',
   ];
   for (const command of commands) {

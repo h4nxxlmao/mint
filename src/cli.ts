@@ -8,9 +8,11 @@ import { renderDoctor, runDoctor } from './doctor.js';
 import { MintError, UsageError } from './errors.js';
 import { runGuard, type GuardIo, type GuardResult } from './guard/index.js';
 import { renderCommandHelp, renderMainHelp, renderToolHelp } from './help.js';
+import { inspectFound, inspectValue, readInspectInput, renderInspection } from './inspect.js';
 import { render } from './output.js';
 import { findGenerator, GENERATORS } from './registry.js';
 import { buildSpecMap } from './specs.js';
+import { readStdinLines } from './stdin.js';
 import { parseSize, suggest } from './flags.js';
 import { VERSION } from './version.js';
 import type { Flags } from './flags.js';
@@ -212,6 +214,13 @@ function main(argv: readonly string[]): number {
     return report.code;
   }
 
+  if (parsed.command === 'inspect') {
+    const value = readInspectInput(parsed.positionals);
+    const inspection = inspectValue(value);
+    write(process.stdout, renderInspection(inspection, resolveToolFormat(flags), stdoutPalette));
+    return inspectFound(inspection.matches, inspection.findings) ? 0 : 1;
+  }
+
   const { generator, args, shorthandSize } = resolveCommand(parsed.command, parsed.positionals);
 
   if (flags.getBool('help')) {
@@ -231,7 +240,7 @@ function main(argv: readonly string[]): number {
     flags.set('bytes', String(shorthandSize));
   }
 
-  const results = dispatch(generator, flags, positionals);
+  const results = dispatch(generator, flags, positionals, readStdinLines);
 
   if (flags.getBool('raw')) {
     return writeRawResults(results, flags);

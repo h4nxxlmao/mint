@@ -91,20 +91,40 @@ export interface WriteBaselineResult {
   salt: string;
   total: number;
   added: number;
+  /** Entries dropped because the finding is gone (only with `prune`). */
+  removed: number;
+}
+
+export interface WriteBaselineOptions {
+  /** Keep only entries whose finding is still present. */
+  prune?: boolean;
+  /** Baseline hashes that the current scan still matched. */
+  matchedHashes?: readonly string[];
 }
 
 /**
- * Write (or refresh) the baseline. Existing entries are kept so refreshing never
- * silently drops findings that are still present but currently out of scope.
+ * Write (or refresh) the baseline. Without `prune`, existing entries are kept so
+ * refreshing never silently drops findings that are still present but currently out
+ * of scope. With `prune`, entries for findings that no longer exist are removed.
  */
 export function writeBaseline(
   path: string,
   salt: string,
   findings: readonly Finding[],
   existing: BaselineFile | undefined,
+  options: WriteBaselineOptions = {},
 ): WriteBaselineResult {
+  const existingEntries = existing?.findings ?? [];
+  const keep = new Set(options.matchedHashes ?? []);
   const merged = new Map<string, BaselineEntry>();
-  for (const entry of existing?.findings ?? []) merged.set(entry.hash, entry);
+
+  let keptExisting = 0;
+  for (const entry of existingEntries) {
+    if (options.prune === true && !keep.has(entry.hash)) continue;
+    merged.set(entry.hash, entry);
+    keptExisting++;
+  }
+
   const before = merged.size;
   for (const entry of baselineEntries(findings)) merged.set(entry.hash, entry);
 
@@ -116,7 +136,13 @@ export function writeBaseline(
   };
 
   writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, 'utf8');
-  return { path, salt: file.salt, total: file.findings.length, added: merged.size - before };
+  return {
+    path,
+    salt: file.salt,
+    total: file.findings.length,
+    added: merged.size - before,
+    removed: existingEntries.length - keptExisting,
+  };
 }
 
 /** Salt to use for a baseline: keep the existing one so old ids stay stable. */

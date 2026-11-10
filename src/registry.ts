@@ -22,6 +22,7 @@ import {
   hmacGenerator,
   jwtSecretGenerator,
   nonceGenerator,
+  otpauthGenerator,
   saltGenerator,
   sessionGenerator,
   tokenGenerator,
@@ -72,6 +73,7 @@ export const CATEGORIES: readonly Category[] = [
     generators: [
       jwtSecretGenerator,
       totpSecretGenerator,
+      otpauthGenerator,
       nonceGenerator,
       apikeyGenerator,
       licenseGenerator,

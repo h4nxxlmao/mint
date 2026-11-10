@@ -40,6 +40,16 @@ export const TOOLS: readonly ToolCommand[] = [
     details: ['Exits 1 when a required check fails (Node version or the CSPRNG).'],
     examples: ['mint doctor', 'mint doctor --json'],
   },
+  {
+    name: 'inspect',
+    summary: 'Identify a value: format, length, entropy and secret verdict',
+    usage: 'inspect [value]',
+    details: [
+      'Accepts a value as an argument or one on stdin, and never echoes it back.',
+      'Exits 0 when the value is recognised, 1 when it matches nothing.',
+    ],
+    examples: ['mint inspect 01M57Q0QNXBP0EZ0SD577CK4QF', 'pbpaste | mint inspect'],
+  },
 ];
 
 export function findTool(name: string): ToolCommand | undefined {

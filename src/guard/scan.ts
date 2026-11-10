@@ -34,6 +34,8 @@ export interface SuppressionContext {
 export interface ScanOutcome {
   findings: Finding[];
   baselined: number;
+  /** Hashes of findings that matched the baseline (still present in this scan). */
+  baselinedHashes: string[];
   truncated: boolean;
   longLinesSkipped: number;
 }
@@ -88,7 +90,7 @@ function isMemberAccess(value: string): boolean {
   return parts.every((part) => part.length > 0 && part.length <= 20 && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(part));
 }
 
-function acceptableValue(value: string): boolean {
+function acceptableValue(value: string, line: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length < 4) return false;
   if (/^(?:true|false|null|none|nil|undefined|\d+)$/iu.test(trimmed)) return false;
@@ -97,6 +99,9 @@ function acceptableValue(value: string): boolean {
   // Short identifiers and dotted references are code, not credentials.
   if (IDENTIFIER_LIKE.test(trimmed) && trimmed.length < 12) return false;
   if (isMemberAccess(trimmed)) return false;
+  // `secret = encodeBase32(...)` is a function call, not a literal credential.
+  const position = line.indexOf(trimmed);
+  if (position !== -1 && line[position + trimmed.length] === '(') return false;
   return classifyPlaceholder(trimmed) === undefined;
 }
 
@@ -109,6 +114,7 @@ export class Scanner {
   /** `${file}|${line}|${value}` -> index in `collected`, for span dedupe. */
   private readonly spans = new Map<string, number>();
   private readonly compiled = new Map<string, RegExp>();
+  private readonly matchedBaseline = new Set<string>();
   private truncated = false;
   private longLines = 0;
 
@@ -160,7 +166,7 @@ export class Scanner {
       const value = (match[rule.capture ?? 0] ?? '').trim();
       matches++;
       if (matches > MAX_MATCHES_PER_LINE) break;
-      if (value === '' || !acceptableValue(value)) continue;
+      if (value === '' || !acceptableValue(value, line)) continue;
       usedValues.add(value);
       this.record(rule, value, lineNumber, meta);
     }
@@ -173,7 +179,7 @@ export class Scanner {
       considered++;
       const value = candidate.value;
       if (usedValues.has(value)) continue;
-      if (!acceptableValue(value)) continue;
+      if (!acceptableValue(value, line)) continue;
       if (!isEntropySecret(value, this.options.entropy, line)) continue;
       usedValues.add(value);
       this.record(rule, value, lineNumber, meta);
@@ -235,7 +241,10 @@ export class Scanner {
       source: meta.source,
     };
     if (meta.commit) finding.commit = meta.commit;
-    if (baselined) finding.baselined = true;
+    if (baselined) {
+      finding.baselined = true;
+      this.matchedBaseline.add(hash);
+    }
     return finding;
   }
 
@@ -246,7 +255,13 @@ export class Scanner {
       if (finding.baselined) baselined++;
       else findings.push(finding);
     }
-    return { findings, baselined, truncated: this.truncated, longLinesSkipped: this.longLines };
+    return {
+      findings,
+      baselined,
+      baselinedHashes: [...this.matchedBaseline],
+      truncated: this.truncated,
+      longLinesSkipped: this.longLines,
+    };
   }
 }
 

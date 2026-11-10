@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { UsageError } from '../errors.js';
+import { readStdinText } from '../stdin.js';
 import { VERSION } from '../version.js';
 import type { ResolvedOptions } from './config.js';
 import { shannonEntropy } from './entropy.js';
@@ -21,15 +21,14 @@ export function readCheckInput(context: GuardContext): CheckInput {
     if (fromArgs.trim() === '') throw new UsageError('the value to check is empty');
     return { value: fromArgs, fromStdin: false };
   }
-  if (process.stdin.isTTY) {
+  const piped = readStdinText();
+  if (piped === '') {
     throw new UsageError(
       'check needs a value',
       'mint guard check "<value>" or pipe it: pbpaste | mint guard check',
     );
   }
-  const stdin = readFileSync(0, 'utf8');
-  if (stdin.trim() === '') throw new UsageError('nothing on stdin to check');
-  return { value: stdin, fromStdin: true };
+  return { value: piped, fromStdin: true };
 }
 
 /** Run the full rule set (plus entropy) over a single input string. */

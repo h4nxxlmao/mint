@@ -1,5 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -195,7 +198,7 @@ test('list prints the catalog as text and json', () => {
   const catalog = JSON.parse(run(['list', '--json']).stdout);
   assert.ok(catalog.generators.length >= 40, `only ${catalog.generators.length} generators`);
   assert.ok(catalog.guard.length >= 9);
-  assert.equal(catalog.tools.length, 3);
+  assert.equal(catalog.tools.length, 4);
   assert.ok(catalog.generators.every((entry: { name: string; summary: string }) => entry.name && entry.summary));
   assert.equal(run(['list', '--format', 'nope']).status, 2);
 });
@@ -214,6 +217,53 @@ test('completions cover every supported shell', () => {
   assert.match(unknown.stderr, /unknown shell/u);
 });
 
+test('inspect identifies values and never echoes them', () => {
+  const ulid = '01M57Q0QNXBP0EZ0SD577CK4QF';
+  const known = run(['inspect', ulid]);
+  assert.equal(known.status, 0, known.stderr);
+  assert.match(known.stdout, /ulid/u);
+  assert.ok(!known.stdout.includes(ulid), 'inspect must not echo the value');
+
+  const unknown = run(['inspect', 'hello']);
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stdout, /no known format/u);
+
+  const json = JSON.parse(run(['inspect', ulid, '--json']).stdout);
+  assert.equal(json.recognized, true);
+  assert.equal(json.formats[0].name, 'ulid');
+
+  const piped = spawnSync(process.execPath, [CLI, 'inspect'], {
+    input: 'cfbff0d1-9375-5685-968c-48ce8b15ae17\n',
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+    windowsHide: true,
+  });
+  assert.equal(piped.status, 0);
+  assert.match(piped.stdout, /uuid/u);
+
+  assert.equal(run(['inspect']).status, 2);
+});
+
+test('pick and shuffle read items from stdin', () => {
+  const picked = spawnSync(process.execPath, [CLI, 'pick'], {
+    input: 'alpha\nbeta\ngamma\n',
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+    windowsHide: true,
+  });
+  assert.equal(picked.status, 0, picked.stderr);
+  assert.ok(['alpha', 'beta', 'gamma'].includes(picked.stdout.trim()));
+
+  const shuffled = spawnSync(process.execPath, [CLI, 'shuffle'], {
+    input: 'a\nb\nc\n',
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+    windowsHide: true,
+  });
+  assert.equal(shuffled.status, 0, shuffled.stderr);
+  assert.deepEqual(shuffled.stdout.trim().split('\n').sort(), ['a', 'b', 'c']);
+});
+
 test('doctor reports the environment', () => {
   const text = run(['doctor']);
   assert.equal(text.status, 0, text.stderr);
@@ -227,6 +277,31 @@ test('doctor reports the environment', () => {
   assert.ok(json.checks.some((check: { name: string }) => check.name === 'git'));
 });
 
+test('doctor validates the guard config and baseline file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mint-doctor-'));
+  const spawnDoctor = () =>
+    spawnSync(process.execPath, [CLI, 'doctor'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1' },
+      windowsHide: true,
+    });
+  try {
+    writeFileSync(join(dir, '.mintguard.json'), '{ not json');
+    const invalid = spawnDoctor();
+    assert.equal(invalid.status, 0, 'an invalid config is a warning, not a failure');
+    assert.match(invalid.stdout, /config\s+\.mintguard\.json is invalid/u);
+
+    writeFileSync(join(dir, '.mintguard.json'), JSON.stringify({ entropyThreshold: 5 }));
+    writeFileSync(join(dir, '.mintguard-baseline.json'), '{"version":1,"salt":"c2FsdA==","findings":[]}');
+    const valid = spawnDoctor();
+    assert.match(valid.stdout, /config\s+\.mintguard\.json is valid/u);
+    assert.match(valid.stdout, /baseline\s+0 known finding hash/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('help works for the tool commands', () => {
   const help = run(['help', 'list']);
   assert.equal(help.status, 0);
@@ -234,6 +309,7 @@ test('help works for the tool commands', () => {
   assert.match(help.stdout, /--json/u);
   assert.match(run(['help', 'completions']).stdout, /bash/u);
   assert.match(run(['help', 'doctor']).stdout, /CSPRNG/u);
+  assert.match(run(['help', 'inspect']).stdout, /format, length, entropy/u);
 });
 
 test('--raw writes the bytes themselves', () => {

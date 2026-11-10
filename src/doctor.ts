@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { Palette } from './colors.js';
-import { CONFIG_FILENAME } from './guard/config.js';
+import { readBaseline } from './guard/baseline.js';
+import { CONFIG_FILENAME, loadConfig } from './guard/config.js';
 import { gitAvailable } from './guard/git.js';
 import { VERSION } from './version.js';
 
@@ -67,12 +68,47 @@ export function runDoctor(cwd: string): { checks: DoctorCheck[]; code: number } 
   });
 
   const configPath = join(cwd, CONFIG_FILENAME);
-  const configured = existsSync(configPath);
-  checks.push({
-    name: 'guard',
-    status: configured ? 'ok' : 'warn',
-    detail: configured ? `${CONFIG_FILENAME} found` : `no ${CONFIG_FILENAME} (run mint guard init)`,
-  });
+  if (!existsSync(configPath)) {
+    checks.push({
+      name: 'config',
+      status: 'ok',
+      detail: `no ${CONFIG_FILENAME} (built-in defaults apply)`,
+    });
+  } else {
+    try {
+      loadConfig(cwd);
+      checks.push({ name: 'config', status: 'ok', detail: `${CONFIG_FILENAME} is valid` });
+    } catch (error) {
+      checks.push({
+        name: 'config',
+        status: 'warn',
+        detail: `${CONFIG_FILENAME} is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  try {
+    const config = loadConfig(cwd);
+    const baselinePath = isAbsolute(config.baselineFile) ? config.baselineFile : join(cwd, config.baselineFile);
+    if (existsSync(baselinePath)) {
+      try {
+        const baseline = readBaseline(baselinePath);
+        checks.push({
+          name: 'baseline',
+          status: 'ok',
+          detail: `${String(baseline?.findings.length ?? 0)} known finding hash(es)`,
+        });
+      } catch (error) {
+        checks.push({
+          name: 'baseline',
+          status: 'warn',
+          detail: `invalid baseline file: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+  } catch {
+    // An invalid config is already reported above; nothing more to check here.
+  }
 
   return { checks, code: checks.some((check) => check.status === 'fail') ? 1 : 0 };
 }

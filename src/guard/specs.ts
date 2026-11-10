@@ -72,6 +72,8 @@ export const GUARD_FLAGS: readonly FlagSpec[] = [
   { name: 'rules', type: 'string', arg: '<id,id>', description: 'Only run these rule ids' },
   { name: 'fix', type: 'boolean', description: 'Print the remediation plan (never edits files)' },
   { name: 'quiet', type: 'boolean', description: 'Suppress progress output' },
+  { name: 'verbose', type: 'boolean', description: 'List skipped files and why, on stderr' },
+  { name: 'prune', type: 'boolean', description: 'Drop baseline entries whose finding is gone' },
   { name: 'force', type: 'boolean', description: 'Overwrite files or append to an existing hook' },
   {
     name: 'inline-comments',
