@@ -77,6 +77,7 @@ Every generator accepts `--length <n>` (characters), `--bytes <n>` or `--bits <n
 | `mint typeid` | type prefix + UUIDv7 in base32 | `mint typeid user` |
 | `mint jwt-secret` | HS256/384/512 sized signing secret | `mint jwt-secret --algo hs512` |
 | `mint totp-secret` | TOTP/HOTP shared secret (base32) | `mint totp-secret --bytes 20` |
+| `mint otpauth` | otpauth:// URI with a fresh TOTP secret | `mint otpauth --issuer GitHub --account me@example.com` |
 | `mint nonce` | 96-bit nonce for AES-GCM/ChaCha20 | `mint nonce --format hex` |
 | `mint apikey` | API key with prefix and optional checksum | `mint apikey --prefix sk_live_ --checksum` |
 | `mint license` | grouped license key with typo checksum | `mint license --groups 4` |
@@ -195,6 +196,22 @@ working-tree scan does (a `test/` entry hides those files in every mode).
   their line numbers in the new file. This is the mode for pull-request CI.
 - `--history` streams `git log -p --all` with a bounded buffer and reports the commit
   hash, author and date that introduced each secret.
+
+```console
+$ mint guard baseline
+mint guard baseline
+
+  wrote 12 finding hashes to .mintguard-baseline.json
+  4 new since the last baseline
+  ...
+```
+
+Add `--prune` to drop entries whose finding no longer exists, so the file does not grow forever
+after you rotate and remove the offending code.
+
+`mint guard scan --verbose` prints every skipped file and the reason (gitignored, ignored, binary,
+too large, outside the target) to stderr, which is the fastest way to answer "why is that file not
+being scanned?".
 
 ### Triage one value
 
@@ -393,21 +410,28 @@ History cleanup is shown as text only (`git filter-repo --path <file> --invert-p
 
 ## CLI tools
 
-Beyond the generators, four commands make mint comfortable to live with:
+Beyond the generators, these commands make mint comfortable to live with:
 
 ```console
 $ mint list --json                       # every generator, guard command and tool as JSON
 $ mint completions bash                  # or zsh, fish, powershell
-$ mint doctor                            # CSPRNG, Node, git, clipboard and config checks
+$ mint doctor                            # CSPRNG, Node, git, clipboard, config and baseline checks
+$ mint inspect 01M57Q0QNXBP0EZ0SD577CK4QF # what is this value?
 $ mint 32 --raw > key.bin                # write the raw bytes, no encoding
+$ ls | mint pick                         # pick and shuffle read stdin when given no arguments
 ```
 
 `mint list` is what editor plugins and your own scripts should read: it returns names, summaries,
-usage lines, examples and accepted flags. `mint doctor` draws fresh bytes from the CSPRNG and
-reports whether `--copy` and the guard git modes will work here; it exits 1 only when something
-mint genuinely needs is missing. `--raw` is available on the byte generators and refuses to be
-combined with `--json`, `--env`, `--prefix` or `--suffix`, so a pipe can never be corrupted by
-decoration.
+usage lines, examples and accepted flags. `mint doctor` draws fresh bytes from the CSPRNG, parses
+`.mintguard.json` and the baseline file, and reports whether `--copy` and the guard git modes will
+work here; it exits 1 only when something mint genuinely needs is missing. `--raw` is available on
+the byte generators and refuses to be combined with `--json`, `--env`, `--prefix` or `--suffix`, so
+a pipe can never be corrupted by decoration.
+
+`mint inspect` is the inverse of the generators: give it a UUID, ULID, KSUID, TypeID, ObjectId,
+snowflake, JWT, PEM block or plain encoding and it tells you what it is, how much entropy it carries
+and whether it looks like a leaked secret. It never echoes the value back and exits 1 when nothing
+matches, which makes it usable as a validator in scripts.
 
 ## Security notes
 
@@ -478,7 +502,8 @@ cd mint
 npm install
 npm run build      # dist/
 npm test           # compiles the tests, then runs node:test
-npm run verify     # 1200+ end-to-end checks over the built CLI
+npm run verify     # 1400+ end-to-end checks over the built CLI
+npm run coverage   # same tests with Node's built-in coverage report (Node 20+)
 npm run typecheck
 node dist/cli.js --help
 ```

@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: [SemVer](https://semver.org/).
 
+## [1.4.0] - 2026-11-10
+
+### Added
+
+- **`mint otpauth`** — prints an `otpauth://totp/...` provisioning URI around a new 160-bit base32
+  secret, with `--issuer`, `--account`, `--algo`, `--code-digits` and `--period`. Labels are
+  percent-encoded, so spaces and unicode survive.
+- **`mint inspect <value>`** — the inverse of the generators: identifies UUID, ULID, KSUID, TypeID,
+  ObjectId, snowflake, JWT, PEM, otpauth URIs and plain encodings, reports length, entropy and
+  charset, and flags values that look like leaked secrets. Reads stdin, never echoes the value,
+  supports `--json`, and exits 1 when nothing matches.
+- `mint pick` and `mint shuffle` read one item per line from stdin when no arguments are given
+  (`ls | mint pick`). Stdin is only read by the CLI, so library calls never block.
+- `mint guard scan --verbose` lists every skipped file with its reason on stderr.
+- `mint guard baseline --prune` drops entries whose finding no longer exists.
+- `mint doctor` now validates `.mintguard.json` and the baseline file instead of only checking
+  that the config exists.
+- `npm run coverage` runs the test suite with Node's built-in coverage report.
+
+### Fixed
+
+- Guard no longer reports `secret = encodeBase32(...)`-style function calls as hard-coded
+  credentials.
+- `mint inspect` no longer reports a 32-character digest as a UUID (version and variant nibbles are
+  validated), and an encoding is only reported when no structured format matched.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
